@@ -1,43 +1,320 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <meta
-      name="description"
-      content="Web site created using create-react-app"
-    />
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
-    <!--
-      manifest.json provides metadata used when your web app is installed on a
-      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
-    -->
-    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <!--
-      Notice the use of %PUBLIC_URL% in the tags above.
-      It will be replaced with the URL of the `public` folder during the build.
-      Only files inside the `public` folder can be referenced from the HTML.
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stock Scanner Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; background-color: #111827; color: #f3f4f6; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1f2937; }
+    ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
 
-      Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
-      work correctly both with client-side routing and a non-root public URL.
-      Learn how to configure a non-root public URL by running `npm run build`.
-    -->
-    <title>React App</title>
-  </head>
-  <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
-    <!--
-      This HTML file is a template.
-      If you open it directly in the browser, you will see an empty page.
+  <script type="text/babel">
+    const { useState, useEffect } = React;
 
-      You can add webfonts, meta tags, or analytics to this file.
-      The build step will place the bundled scripts into the <body> tag.
+    // --- Icon Components ---
+    const TrendingUp = () => <svg className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>;
+    const BarChart3 = () => <svg className="w-16 h-16 text-gray-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>;
+    const CheckCircle = () => <svg className="w-12 h-12 text-green-400 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+    const Clock = () => <svg className="w-12 h-12 text-yellow-400 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+    const Calendar = () => <svg className="w-12 h-12 text-blue-400 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>;
+    const Loader = () => <svg className="animate-spin h-8 w-8 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx={12} cy={12} r={10} stroke="currentColor" strokeWidth={4} /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>;
+    // --- End Icon Components ---
 
-      To begin the development, run `npm start` or `yarn start`.
-      To create a production bundle, use `npm run build` or `yarn build`.
-    -->
-  </body>
+    /**
+     * Renders a single data table
+     */
+    const DataTable = ({ title, data, color = 'green' }) => {
+      if (!data || data.length === 0) {
+        return null;
+      }
+      
+      const headers = Object.keys(data[0]);
+      
+      return (
+        <div className="bg-gray-800 rounded-xl shadow-lg overflow-hidden border border-gray-700">
+          <h3 className={`text-xl font-semibold text-${color}-400 p-4 border-b border-gray-700`}>
+            {title} ({data.length})
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-700">
+              <thead className="bg-gray-700/50">
+                <tr>
+                  {headers.map(header => (
+                    <th key={header} scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                      {header.replace(/_/g, ' ')}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-700">
+                {data.map((row, index) => (
+                  <tr key={index} className={index % 2 === 0 ? 'bg-gray-800' : 'bg-gray-900/50'}>
+                    {headers.map(header => (
+                      <td key={`${index}-${header}`} className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
+                        {row[header]}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    };
+
+    /**
+     * Main App Component
+     */
+    function App() {
+      const [mainChoice, setMainChoice] = useState('2');
+      const [universeChoice, setUniverseChoice] = useState('2');
+      const [isScanning, setIsScanning] = useState(false);
+      const [scanId, setScanId] = useState(null);
+      const [error, setError] = useState(null);
+      const [logs, setLogs] = useState('');
+      const [results, setResults] = useState(null);
+      
+      // This holds the polling interval
+      let pollInterval = null;
+
+      // Cleanup polling on unmount
+      useEffect(() => {
+        return () => {
+          if (pollInterval) {
+            clearInterval(pollInterval);
+          }
+        };
+      }, [pollInterval]);
+
+      /**
+       * Main function to start the scan
+       */
+      const runScan = async () => {
+        setIsScanning(true);
+        setError(null);
+        setResults(null);
+        setLogs('');
+        
+        try {
+          // 1. Start the scan
+          const startResponse = await fetch('/api/start-scan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mainChoice, universeChoice })
+          });
+          
+          if (!startResponse.ok) {
+            throw new Error('Failed to start scan.');
+          }
+          
+          const { scanId } = await startResponse.json();
+          setScanId(scanId);
+          
+          // 2. Start polling for results
+          pollInterval = setInterval(() => {
+            checkStatus(scanId);
+          }, 3000); // Poll every 3 seconds
+          
+        } catch (err) {
+          setError(err.message);
+          setIsScanning(false);
+        }
+      };
+      
+      /**
+       * Polling function to check scan status
+       */
+      const checkStatus = async (id) => {
+        try {
+          const statusResponse = await fetch(`/api/scan-status/${id}`);
+          const data = await statusResponse.json();
+
+          // We check for new log output and append it
+          if (data.progress) {
+             setLogs(prevLogs => {
+                // Determine if the new progress is a full line or just an update
+                if (data.progress.endsWith('\n') || data.progress.startsWith('Wrapper')) {
+                    // It's a full line, append it
+                    return prevLogs + data.progress;
+                } else if (prevLogs.length > 0 && prevLogs.slice(-1) !== '\n') {
+                    // It's a progress update, replace the last line (ruder than Python's \r but works)
+                    const lastNewlineIndex = prevLogs.lastIndexOf('\n');
+                    return (lastNewlineIndex === -1 ? '' : prevLogs.substring(0, lastNewlineIndex + 1)) + data.progress;
+                }
+                return prevLogs + data.progress;
+             });
+          }
+
+
+          if (data.error) {
+            // Handle script error
+            throw new Error(data.error);
+          }
+
+          if (data.completed) {
+            // Scan is done!
+            clearInterval(pollInterval);
+            
+            // Fetch the final results
+            const resultsResponse = await fetch(`/api/scan-results/${id}`);
+            const resultsData = await resultsResponse.json();
+            
+            setResults(resultsData.results);
+            // Append final logs which may include summary lines missed by quick polling
+            if (resultsData.logs) {
+                 setLogs(resultsData.logs);
+            }
+            setIsScanning(false);
+            
+          } 
+        } catch (err) {
+          clearInterval(pollInterval);
+          // Only set error if it's not a generic network issue
+          if (err.message && err.message.indexOf('Failed to fetch') === -1) {
+              setError(err.message);
+          } else {
+              setError("An unknown network error occurred or the server stopped.");
+          }
+          setIsScanning(false);
+        }
+      };
+
+      return (
+        <div className="max-w-7xl mx-auto p-4 md:p-8">
+          <header className="mb-8 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <TrendingUp />
+              <div>
+                <h1 className="text-3xl font-bold text-white">Two-Tier Momentum Scanner</h1>
+                <p className="text-gray-400">Web UI for running `python-scanner-script.py`</p>
+              </div>
+            </div>
+          </header>
+
+          {/* Controls */}
+          <div className="bg-gray-800 p-6 rounded-xl shadow-lg mb-8 flex flex-col md:flex-row gap-4 items-center border border-gray-700">
+            <div className="w-full md:w-1/3">
+              <label htmlFor="mainChoice" className="block text-sm font-medium text-gray-300 mb-1">Scan Type</label>
+              <select id="mainChoice" value={mainChoice} onChange={e => setMainChoice(e.target.value)} className="w-full bg-gray-700 text-white border-gray-600 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 p-2.5">
+                <option value="1">1: Run WEEKLY Scan</option>
+                <option value="2">2: Run DAILY Scan</option>
+                <option value="3">3: Run BOTH Scans</option>
+              </select>
+            </div>
+
+            <div className="w-full md:w-1/3">
+              <label htmlFor="universeChoice" className="block text-sm font-medium text-gray-300 mb-1">Stock Universe</label>
+              <select id="universeChoice" value={universeChoice} onChange={e => setUniverseChoice(e.target.value)} className="w-full bg-gray-700 text-white border-gray-600 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 p-2.5">
+                <option value="1">1: Nifty 50</option>
+                <option value="2">2: Nifty Next 50</option>
+                <option value="3">3: Large Cap</option>
+                <option value="4">4: Mid Cap</option>
+                <option value="5">5: Small Cap</option>
+                <option value="6">6: ALL Files</option>
+              </select>
+            </div>
+
+            <div className="w-full md:w-auto md:pt-6">
+              <button id="runScanBtn" onClick={runScan} disabled={isScanning} className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 disabled:bg-gray-500 rounded-lg text-white font-bold py-2.5 px-6 transition duration-200 shadow-md flex items-center justify-center gap-2">
+                {isScanning && <Loader />}
+                {isScanning ? 'Scanning...' : 'Run Scan'}
+              </button>
+            </div>
+          </div>
+
+          {/* Results Area */}
+          <div className="space-y-8">
+            {isScanning && (
+              <div className="text-center py-16 bg-gray-800/50 rounded-xl border border-dashed border-gray-700">
+                <Loader />
+                <p className="text-lg font-medium text-gray-300 mt-4">Running Python scanner...</p>
+                <p className="text-sm text-gray-400">This may take several minutes.</p>
+              </div>
+            )}
+            
+            {error && (
+              <div className="p-4 bg-red-900 border border-red-700 text-red-200 rounded-lg">
+                <h3 className="font-bold mb-2">Scan Failed</h3>
+                <pre className="text-sm font-mono whitespace-pre-wrap">{error}</pre>
+              </div>
+            )}
+
+            {results && !isScanning && (
+              <div className="space-y-8">
+                {/* Summary Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-gradient-to-br from-green-900/20 to-emerald-800/20 backdrop-blur-sm rounded-xl border border-green-700/50 p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-gray-400 text-sm">BUY Ready</p>
+                        <p className="text-3xl font-bold text-green-400 mt-1">{results.buy?.length || 0}</p>
+                      </div>
+                      <CheckCircle />
+                    </div>
+                  </div>
+                  <div className="bg-gradient-to-br from-yellow-900/20 to-orange-800/20 backdrop-blur-sm rounded-xl border border-yellow-700/50 p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-gray-400 text-sm">On Watchlist (WAIT)</p>
+                        <p className="text-3xl font-bold text-yellow-400 mt-1">{results.wait?.length || 0}</p>
+                      </div>
+                      <Clock />
+                    </div>
+                  </div>
+                  <div className="bg-gradient-to-br from-blue-900/20 to-indigo-800/20 backdrop-blur-sm rounded-xl border border-blue-700/50 p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-gray-400 text-sm">Weekly Watchlist</p>
+                        <p className="text-3xl font-bold text-blue-400 mt-1">{results.watchlist?.length || 0}</p>
+                      </div>
+                      <Calendar />
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Data Tables */}
+                <DataTable title="🟢 BUY Signals" data={results.buy} color="green" />
+                <DataTable title="🟡 WAIT Signals" data={results.wait} color="yellow" />
+                <DataTable title="📈 Weekly Watchlist" data={results.watchlist} color="blue" />
+              </div>
+            )}
+            
+            {logs && (
+              <div className="bg-gray-800 rounded-xl shadow-lg overflow-hidden border border-gray-700">
+                <h3 className="text-xl font-semibold text-gray-400 p-4 border-b border-gray-700">
+                  Python Script Logs
+                </h3>
+                <pre className="bg-black text-gray-300 font-mono p-4 overflow-x-auto max-h-96 text-xs">
+                  {logs}
+                </pre>
+              </div>
+            )}
+
+            {!results && !isScanning && !error && (
+              <div className="text-center py-16">
+                <BarChart3 />
+                <p className="text-gray-400 text-lg">Configure your scan and click "Run Scan" to get started</p>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
 </html>
