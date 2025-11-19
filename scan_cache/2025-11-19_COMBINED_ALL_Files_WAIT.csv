@@ -1,0 +1,12 @@
+Symbol,Grade,Score,Current_Price,VWAP,VWAP_Dev_%,POC,Entry_Low,Entry_High,Above_MA20,Wait_For
+SBIN.NS,A,58,972.45,944.95,2.91,871.56,966.09,978.81,True,
+CAMS.NS,A,57,3945.8,3875.48,1.81,3836.4,3904.12,3987.48,True,Low volume (0.5x)
+BIOCON.NS,A,53,421.6,394.32,6.92,406.49,416.46,426.74,True,Extended above VWAP (+6.9%)
+BAJAJ-AUTO.NS,A,52,8921.0,8891.78,0.33,8681.22,8852.75,8989.25,True,Low volume (0.7x)
+ICICIPRULI.NS,A,52,626.8,609.96,2.76,601.35,621.64,631.96,True,Low volume (0.6x)
+CDSL.NS,A,47,1605.7,1603.66,0.13,1589.36,1586.36,1625.04,True,Price weak (-3.0%) | Low volume (0.7x)
+LICHSGFIN.NS,A,47,567.55,575.65,-1.41,570.96,563.5,571.6,False,Below MA20 (weak trend)
+MARICO.NS,A,43,756.45,729.43,3.7,719.55,750.46,762.44,True,Extended above VWAP (+3.7%)
+HINDPETRO.NS,A,42,483.55,467.95,3.33,436.51,478.25,488.85,True,Extended above VWAP (+3.3%) | Low volume (0.6x)
+INDUSINDBK.NS,A,42,847.95,816.56,3.84,723.32,837.51,858.39,True,Extended above VWAP (+3.8%) | Low volume (0.3x)
+INDIGO.NS,A,40,5739.5,5752.33,-0.22,5727.98,5682.09,5796.91,False,Negative momentum | Below MA20 (weak trend)

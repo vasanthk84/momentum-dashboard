@@ -1,0 +1,10 @@
+Symbol,Grade,Score,Current_Price,VWAP,VWAP_Dev_%,POC,Entry_Low,Entry_High,Above_MA20,Wait_For
+TATATECH.NS,A,58,686.0,690.12,-0.6,685.19,679.82,692.18,False,Below MA20 (weak trend)
+TATACONSUM.NS,A,58,1154.8,1166.43,-1.0,1103.91,1141.66,1167.94,False,Below MA20 (weak trend)
+TATAPOWER.NS,A,53,388.8,399.05,-2.57,395.8,385.13,392.47,False,Below MA20 (weak trend)
+CAMS.NS,A,53,3944.0,3863.28,2.09,3836.4,3894.68,3993.32,True,Low volume (0.6x)
+ABBOTINDIA.NS,A,51,29570.0,29589.12,-0.06,29479.05,29309.64,29830.36,False,Below MA20 (weak trend)
+BAJAJ-AUTO.NS,A,50,8867.5,8932.54,-0.73,8681.22,8801.61,8933.39,False,Low volume (0.6x) | Below MA20 (weak trend)
+TATASTEEL.NS,A,47,176.65,179.11,-1.37,176.43,174.65,178.65,False,Price weak (-2.6%) | Below MA20 (weak trend)
+TECHM.NS,A,43,1451.4,1433.26,1.27,1490.05,1440.66,1462.14,True,Low volume (0.5x)
+BIOCON.NS,A,40,417.0,386.93,7.77,368.89,412.25,421.75,True,Extended above VWAP (+7.8%)

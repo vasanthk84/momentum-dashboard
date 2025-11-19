@@ -3,7 +3,6 @@
 // .gitignore
 node_modules/
 .env
-*.csv
 *.log
 dist/
 .DS_Store

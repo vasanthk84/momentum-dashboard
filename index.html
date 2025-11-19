@@ -33,52 +33,20 @@
     const Calendar = () => <svg className="w-12 h-12 text-blue-400 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>;
     const Loader = () => <svg className="animate-spin h-8 w-8 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx={12} cy={12} r={10} stroke="currentColor" strokeWidth={4} /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>;
     const ChevronRight = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>;
-    const Search = () => <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>;
     // --- End Icon Components ---
-
-    // Utility function to safely parse and clean signals
-    const parseSignals = (signal_str) => {
-        if (!signal_str) return [];
-        // Safely parse the signal string from array-string format
-        const cleaned_str = signal_str.trim().replace(/^\[|\]$/g, '');
-        const signals = cleaned_str.match(/'([^']+)'/g); // Find all content inside single quotes
-        if (!signals) return [];
-        // Clean up quotes and trim
-        return signals.map(s => s.replace(/'/g, '').trim());
-    };
 
     /**
      * Renders a single expandable table row
      */
-    const ExpandableRow = ({ row, headers, index, isExpanded, onToggle, toggleColumn }) => {
-      // The watchlist uses 'Signals' for the expanded area. The other tables use 'metrics'.
-      const isWatchlist = toggleColumn === 'Signals';
+    const ExpandableRow = ({ row, headers, index, isExpanded, onToggle }) => {
       const hasMetrics = row.metrics && row.metrics.length > 0;
       
-      // The toggle content for the dropdown area (using Signals column text)
-      const renderToggleContent = () => {
-        if (isWatchlist) {
-            // Logic for Weekly Watchlist: Use the 'Signals' column
-            const signals = parseSignals(row.Signals);
-
-            if (signals.length === 0) {
-                return <p className="text-gray-400 italic">No specific signals recorded.</p>;
-            }
-
-            return (
-                <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-                    <h4 className="text-sm font-semibold text-blue-400 mb-3">📈 Watchlist Signals ({signals.length})</h4>
-                    <ul className="list-disc list-inside space-y-1">
-                        {signals.map((signal, idx) => (
-                            <li key={idx} className="text-gray-300">{signal}</li>
-                        ))}
-                    </ul>
-                </div>
-            );
-        }
-        return null;
-      };
-
+      // Debug logging
+      if (index === 0) {
+        console.log('First row data:', row);
+        console.log('Has metrics:', hasMetrics);
+        console.log('Metrics:', row.metrics);
+      }
       
       return (
         <>
@@ -87,13 +55,12 @@
               <td key={`${index}-${header}`} className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
                 {headerIndex === 0 ? (
                   <div className="flex items-center gap-2">
-                    {/* The expand button is shown if either 'metrics' or the custom 'toggleColumn' is present */}
-                    {(hasMetrics || isWatchlist) ? (
+                    {hasMetrics ? (
                       <button
                         onClick={onToggle}
                         className={`expand-btn text-blue-400 hover:text-blue-300 transition-all flex-shrink-0 ${isExpanded ? 'rotated' : ''}`}
-                        aria-label="Expand details"
-                        title="Click to view details"
+                        aria-label="Expand metrics"
+                        title="Click to view signal metrics"
                       >
                         <ChevronRight />
                       </button>
@@ -109,28 +76,20 @@
             ))}
           </tr>
           
-          {isExpanded && (hasMetrics || isWatchlist) && (
+          {isExpanded && hasMetrics && (
             <tr className="bg-gray-900 border-t border-gray-700">
               <td colSpan={headers.length} className="px-6 py-4">
-                
-                {/* 1. Render custom toggle content (for Watchlist/Signals) */}
-                {isWatchlist && renderToggleContent()}
-
-                {/* 2. Render Signal Metrics (for BUY/WAIT tables, but skip for Watchlist's custom view) */}
-                {hasMetrics && !isWatchlist && (
-                    <div className="bg-gray-800 rounded-lg p-4 border border-gray-700 mt-2">
-                        <h4 className="text-sm font-semibold text-green-400 mb-3">📊 Signal Metrics ({row.metrics.length})</h4>
-                        {/* CHANGE APPLIED HERE: Using a simple list structure instead of a grid layout */}
-                        <ul className="space-y-2">
-                          {row.metrics.map((metric, idx) => (
-                            <li key={idx} className="flex items-start gap-2 text-sm">
-                              <span className="text-green-400 mt-0.5 flex-shrink-0">✓</span>
-                              <span className="text-gray-300">{metric}</span>
-                            </li>
-                          ))}
-                        </ul>
-                    </div>
-                )}
+                <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                  <h4 className="text-sm font-semibold text-blue-400 mb-3">📊 Signal Metrics ({row.metrics.length})</h4>
+                  <ul className="space-y-2">
+                    {row.metrics.map((metric, idx) => (
+                      <li key={idx} className="flex items-start gap-2 text-sm">
+                        <span className="text-green-400 mt-0.5 flex-shrink-0">✓</span>
+                        <span className="text-gray-300">{metric}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </td>
             </tr>
           )}
@@ -141,25 +100,16 @@
     /**
      * Renders a data table with expandable rows
      */
-    const DataTable = ({ title, data, color = 'green', toggleColumn = null }) => {
+    const DataTable = ({ title, data, color = 'green' }) => {
       const [expandedRows, setExpandedRows] = useState(new Set());
       
       if (!data || data.length === 0) {
-        // Only return null if there is no data to show
-        if (data === null || data === undefined) return null;
-
-        // If data is empty but filter is active, show filtered message
-        return (
-          <div className="bg-gray-800 rounded-xl shadow-lg overflow-hidden border border-gray-700 p-6 text-center">
-            <h3 className={`text-xl font-semibold text-${color}-400 mb-2`}>{title} (0)</h3>
-            <p className="text-gray-400">No results match the current filter.</p>
-          </div>
-        );
+        return null;
       }
       
-      // Filter out 'metrics' and the custom toggle column from the display headers
+      // Filter out 'metrics' from headers as it's not a display column
       const allHeaders = Object.keys(data[0]);
-      const headers = allHeaders.filter(h => h !== 'metrics' && h !== toggleColumn);
+      const headers = allHeaders.filter(h => h !== 'metrics');
       
       const toggleRow = (index) => {
         const newExpanded = new Set(expandedRows);
@@ -196,7 +146,6 @@
                     index={index}
                     isExpanded={expandedRows.has(index)}
                     onToggle={() => toggleRow(index)}
-                    toggleColumn={toggleColumn}
                   />
                 ))}
               </tbody>
@@ -217,18 +166,8 @@
       const [error, setError] = useState(null);
       const [logs, setLogs] = useState('');
       const [results, setResults] = useState(null);
-      const [filterSignal, setFilterSignal] = useState(''); // New state for dropdown
-      const [filterSearch, setFilterSearch] = useState(''); // New state for search bar
       
       const pollIntervalRef = useRef(null); 
-      
-      // Define high-conviction signals for the dropdown
-      const highConvictionSignals = [
-        "Pocket pivot detected",
-        "Tight consolidation", // Used to match Tight consolidation and Extremely tight base (VCP)
-        "Volume coiling (dry up)",
-        "Resistance tested 5x"
-      ];
 
       useEffect(() => {
         return () => {
@@ -248,8 +187,6 @@
         setError(null);
         setResults(null);
         setLogs('');
-        setFilterSignal(''); // Reset filters on new scan
-        setFilterSearch(''); // Reset filters on new scan
         
         try {
           const startResponse = await fetch('/api/start-scan', {
@@ -276,7 +213,6 @@
       };
       
       const checkStatus = async (id) => {
-        // ... (checkStatus logic remains unchanged) ...
         try {
           const statusResponse = await fetch(`/api/scan-status/${id}`);
           const data = await statusResponse.json();
@@ -340,55 +276,36 @@
         }
       };
 
-      // --- Filtering Logic ---
-      const applyFilters = (data, isWatchlist) => {
-        if (!data) return null;
-        
-        let filteredData = data;
-        
-        // 1. Dropdown Filter (Signal)
-        if (filterSignal) {
-          filteredData = filteredData.filter(row => {
-            // Signal search is different for Watchlist (Signals column) vs. Buy/Wait (metrics)
-            const sourceText = isWatchlist ? row.Signals : (row.metrics || []).join('|');
-            
-            if (!sourceText) return false;
-            
-            // Handle combined filter 'Tight consolidation'
-            if (filterSignal === "Tight consolidation") {
-                return sourceText.includes("Tight consolidation") || sourceText.includes("Extremely tight base (VCP)");
-            }
-            
-            return sourceText.includes(filterSignal);
-          });
-        }
-        
-        // 2. Search Bar Filter (Symbol)
-        if (filterSearch) {
-          const searchLower = filterSearch.toLowerCase();
-          filteredData = filteredData.filter(row => 
-            String(row.Symbol).toLowerCase().includes(searchLower)
-          );
-        }
-        
-        return filteredData;
-      };
-
-      const filteredBuy = applyFilters(results?.buy, false);
-      const filteredWait = applyFilters(results?.wait, false);
-      const filteredWatchlist = applyFilters(results?.watchlist, true);
-      // --- End Filtering Logic ---
-
-
       return (
         <div className="max-w-7xl mx-auto p-4 md:p-8">
-          <header className="mb-8 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <TrendingUp />
-              <div>
-                <h1 className="text-3xl font-bold text-white">Two-Tier Momentum Scanner</h1>
-                <p className="text-gray-400">Web UI with Expandable Signal Metrics</p>
+          <header className="mb-8">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-4">
+                <TrendingUp />
+                <div>
+                  <h1 className="text-3xl font-bold text-white">Two-Tier Momentum Scanner</h1>
+                  <p className="text-gray-400">Web UI with Expandable Signal Metrics</p>
+                </div>
               </div>
+            </div>
+            
+            {/* Navigation Bar */}
+            <div className="bg-gray-800 rounded-xl p-4 border border-gray-700 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                <span className="text-white font-semibold">Live Scanner</span>
+              </div>
+              <a 
+                href="/performance.html" 
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition flex items-center gap-2 text-white font-medium"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                View Performance History
+              </a>
             </div>
           </header>
 
@@ -450,7 +367,7 @@
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-gray-400 text-sm">BUY Ready</p>
-                        <p className="text-3xl font-bold text-green-400 mt-1">{filteredBuy?.length ?? results.buy?.length ?? 0}</p>
+                        <p className="text-3xl font-bold text-green-400 mt-1">{results.buy?.length || 0}</p>
                       </div>
                       <CheckCircle />
                     </div>
@@ -459,7 +376,7 @@
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-gray-400 text-sm">On Watchlist (WAIT)</p>
-                        <p className="text-3xl font-bold text-yellow-400 mt-1">{filteredWait?.length ?? results.wait?.length ?? 0}</p>
+                        <p className="text-3xl font-bold text-yellow-400 mt-1">{results.wait?.length || 0}</p>
                       </div>
                       <Clock />
                     </div>
@@ -468,58 +385,17 @@
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-gray-400 text-sm">Weekly Watchlist</p>
-                        <p className="text-3xl font-bold text-blue-400 mt-1">{filteredWatchlist?.length ?? results.watchlist?.length ?? 0}</p>
+                        <p className="text-3xl font-bold text-blue-400 mt-1">{results.watchlist?.length || 0}</p>
                       </div>
                       <Calendar />
                     </div>
                   </div>
                 </div>
-
-                {/* Search and Filter Controls */}
-                <div className="bg-gray-800 p-4 rounded-xl shadow-lg border border-gray-700 flex flex-col sm:flex-row gap-4">
-                    {/* Search Bar */}
-                    <div className="relative w-full sm:w-1/2">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                            <Search />
-                        </div>
-                        <input
-                            type="text"
-                            id="search-symbol"
-                            placeholder="Search by Symbol..."
-                            value={filterSearch}
-                            onChange={e => setFilterSearch(e.target.value)}
-                            className="w-full bg-gray-700 text-white border-gray-600 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 p-2.5 pl-10 placeholder-gray-400"
-                        />
-                    </div>
-
-                    {/* Dropdown Filter */}
-                    <div className="w-full sm:w-1/2">
-                        <select 
-                            id="filter-signal" 
-                            value={filterSignal} 
-                            onChange={e => setFilterSignal(e.target.value)} 
-                            className="w-full bg-gray-700 text-white border-gray-600 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 p-2.5"
-                        >
-                            <option value="">Filter by High-Conviction Signal (All)</option>
-                            <option disabled>──────────</option>
-                            {highConvictionSignals.map((signal, index) => (
-                                <option key={index} value={signal}>
-                                    {signal.includes("Tight consolidation") ? "Tight consolidation / Extremely tight base (VCP)" : signal}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                </div>
                 
                 {/* Data Tables */}
-                <DataTable title="🟢 BUY Signals (Actionable)" data={filteredBuy} color="green" />
-                <DataTable title="🟡 WAIT Signals (Monitor)" data={filteredWait} color="yellow" />
-                <DataTable 
-                    title="📈 Weekly Watchlist (Tier 1)" 
-                    data={filteredWatchlist} 
-                    color="blue" 
-                    toggleColumn="Signals"
-                />
+                <DataTable title="🟢 BUY Signals (Actionable)" data={results.buy} color="green" />
+                <DataTable title="🟡 WAIT Signals (Monitor)" data={results.wait} color="yellow" />
+                <DataTable title="📈 Weekly Watchlist (Tier 1)" data={results.watchlist} color="blue" />
               </div>
             )}
             

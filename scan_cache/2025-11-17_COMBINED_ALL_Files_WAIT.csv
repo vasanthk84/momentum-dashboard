@@ -1,0 +1,8 @@
+Symbol,Grade,Score,Current_Price,VWAP,VWAP_Dev_%,POC,Entry_Low,Entry_High,Above_MA20,Wait_For
+SUNPHARMA.NS,A,59,1763.9,1705.87,3.4,1585.4,1750.41,1777.39,True,Extended above VWAP (+3.4%)
+DIVISLAB.NS,A,53,6518.5,6659.2,-2.11,6131.02,6448.29,6588.71,False,Below MA20 (weak trend)
+INDUSINDBK.NS,A,53,854.05,809.31,5.53,723.32,843.51,864.59,True,Extended above VWAP (+5.5%) | Low volume (0.5x)
+UBL.NS,A,50,1786.8,1800.66,-0.77,1794.83,1772.0,1801.6,False,Low volume (0.5x) | Below MA20 (weak trend)
+JBCHEPHARM.NS,A,50,1821.5,1758.87,3.56,1813.18,1804.39,1838.61,True,Extended above VWAP (+3.6%) | Low volume (0.3x)
+ADANIPORTS.NS,A,43,1507.6,1462.8,3.06,1446.39,1494.1,1521.1,True,Extended above VWAP (+3.1%) | Low volume (0.7x)
+MARICO.NS,A,40,760.7,727.09,4.62,720.78,754.95,766.45,True,Extended above VWAP (+4.6%)
