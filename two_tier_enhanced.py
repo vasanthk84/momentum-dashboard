@@ -26,6 +26,7 @@ import logging
 from colorama import Fore, init
 import requests
 import json
+from db_persistence import get_db, save_watchlist_with_db, save_daily_signals_with_db
 
 init(autoreset=True)
 warnings.filterwarnings('ignore')
@@ -486,6 +487,7 @@ class TwoTierEnhancedScanner:
         self.symbols = []
         self.telegram_notifier = TelegramNotifier() if Config.SEND_TELEGRAM else None
         self.results_file = None  # Track the single output file
+        self.universe = 'Unknown'  # Track universe for DB persistence
 
     def load_watchlist(self):
         """Load symbols from watchlist CSV"""
@@ -609,7 +611,8 @@ class TwoTierEnhancedScanner:
                 watchlist = watchlist.sort_values('Total_Score', ascending=False).head(30)
 
                 # Save watchlist
-                watchlist.to_csv(Config.WATCHLIST_FILE, index=False)
+                # CHANGED: Use DB persistence wrapper
+                save_watchlist_with_db(watchlist, Config.WATCHLIST_FILE, universe=self.universe)
                 logger.info(f"{E_SAVE} Watchlist saved: {Config.WATCHLIST_FILE} ({len(watchlist)} stocks)")
 
                 # Log summary
@@ -753,6 +756,9 @@ class TwoTierEnhancedScanner:
                 'skip': skip_stocks,
                 'file': self.results_file  # Single output file
             }
+            
+            # CHANGED: Use DB persistence wrapper
+            save_daily_signals_with_db(results_dict, self.results_file, universe=self.universe)
             # Send Telegram notification
             if self.telegram_notifier:
                 logger.info(f"{E_TELEGRAM} Sending Telegram notification...")

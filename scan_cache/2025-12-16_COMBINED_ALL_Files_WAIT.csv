@@ -1,0 +1,10 @@
+Symbol,Grade,Score,Current_Price,VWAP,VWAP_Dev_%,POC,Entry_Low,Entry_High,Above_MA20,Wait_For
+VBL.NS,A,56,477.15,467.37,2.09,495.4,471.77,482.53,True,Weak market environment
+ICICIPRULI.NS,A,56,637.95,625.43,2.0,588.29,630.99,644.91,True,Weak market environment
+RELIANCE.NS,A,50,1542.3,1546.11,-0.25,1484.81,1531.87,1552.73,False,Weak market environment | Below MA20 (weak trend)
+ZFCVINDIA.NS,A,48,15030.0,14111.99,6.51,14847.75,14716.82,15343.18,True,Extended above VWAP (+6.5%) | Weak market environment
+BAJAJ-AUTO.NS,A,48,9008.0,9021.38,-0.15,9002.71,8934.96,9081.04,False,Weak market environment | Below MA20 (weak trend)
+DRREDDY.NS,A,46,1276.9,1258.14,1.49,1246.7,1267.88,1285.92,True,Weak market environment
+TECHM.NS,A,46,1578.2,1511.13,4.44,1432.03,1565.86,1590.54,True,Extended above VWAP (+4.4%) | Weak market environment
+FEDERALBNK.NS,A,46,262.2,255.47,2.64,226.9,259.99,264.41,True,Weak market environment
+M&M.NS,A,45,3621.0,3691.23,-1.9,3621.54,3588.76,3653.24,False,Weak market environment | Below MA20 (weak trend)

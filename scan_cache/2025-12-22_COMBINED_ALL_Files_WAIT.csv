@@ -1,0 +1,4 @@
+Symbol,Grade,Score,Current_Price,VWAP,VWAP_Dev_%,POC,Entry_Low,Entry_High,Above_MA20,Wait_For
+ZFCVINDIA.NS,A,58,15329.0,14388.63,6.54,14819.66,15054.11,15603.89,True,Extended above VWAP (+6.5%) | Low volume (0.5x)
+AXISBANK.NS,A,55,1233.2,1262.43,-2.32,1180.77,1223.51,1242.89,False,Low volume (0.4x) | Below MA20 (weak trend)
+PATANJALI.NS,A,53,550.15,542.6,1.39,538.33,541.57,558.73,True,Low volume (0.2x)

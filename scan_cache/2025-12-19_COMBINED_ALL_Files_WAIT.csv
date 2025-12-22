@@ -1,0 +1,2 @@
+Symbol,Grade,Score,Current_Price,VWAP,VWAP_Dev_%,POC,Entry_Low,Entry_High,Above_MA20,Wait_For
+HINDZINC.NS,A,51,588.75,538.14,9.4,482.79,579.85,597.65,True,Extended above VWAP (+9.4%) | Low volume (0.6x)

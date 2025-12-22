@@ -13,7 +13,7 @@ const PORT = 3000;
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname))); 
+app.use(express.static(path.join(__dirname)));
 
 const activeScans = new Map();
 
@@ -67,30 +67,30 @@ function getCacheFiles(cacheKey) {
  */
 async function checkCache(cacheKey, mainChoice) {
   const files = getCacheFiles(cacheKey);
-  
+
   try {
     // Check metadata
     const metaExists = fsSync.existsSync(files.metadata);
     if (!metaExists) return false;
-    
+
     const metadata = JSON.parse(await fs.readFile(files.metadata, 'utf8'));
-    
+
     // Verify cache is from today
     const today = new Date().toISOString().split('T')[0];
     if (metadata.date !== today) return false;
-    
+
     // Check required files exist based on scan type
     if (mainChoice === '1' || mainChoice === '3') {
       // WEEKLY or COMBINED needs watchlist
       if (!fsSync.existsSync(files.watchlist)) return false;
     }
-    
+
     if (mainChoice === '2' || mainChoice === '3') {
       // DAILY or COMBINED needs buy/wait
       if (!fsSync.existsSync(files.buy)) return false;
       // WAIT file is optional
     }
-    
+
     console.log(`✅ Cache hit: ${cacheKey}`);
     return true;
   } catch (error) {
@@ -105,30 +105,30 @@ async function checkCache(cacheKey, mainChoice) {
 async function cacheResults(cacheKey, mainChoice) {
   const files = getCacheFiles(cacheKey);
   const today = new Date().toISOString().split('T')[0];
-  
+
   try {
     // Find and move BUY file
     if (mainChoice === '2' || mainChoice === '3') {
       const buyPattern = /^BUY_SIGNALS_.*\.csv$/;
       const buyFiles = (await fs.readdir('.')).filter(f => buyPattern.test(f));
-      
+
       if (buyFiles.length > 0) {
         const srcBuy = buyFiles[0];
         await fs.rename(srcBuy, files.buy);
         console.log(`📦 Cached: ${srcBuy} → ${files.buy}`);
       }
-      
+
       // Find and move WAIT file
       const waitPattern = /^WAIT_LIST_.*\.csv$/;
       const waitFiles = (await fs.readdir('.')).filter(f => waitPattern.test(f));
-      
+
       if (waitFiles.length > 0) {
         const srcWait = waitFiles[0];
         await fs.rename(srcWait, files.wait);
         console.log(`📦 Cached: ${srcWait} → ${files.wait}`);
       }
     }
-    
+
     // Find and move WATCHLIST file
     if (mainChoice === '1' || mainChoice === '3') {
       const watchlistFile = 'watchlist_momentum_current.csv';
@@ -137,7 +137,7 @@ async function cacheResults(cacheKey, mainChoice) {
         console.log(`📦 Cached: ${watchlistFile} → ${files.watchlist}`);
       }
     }
-    
+
     // Create metadata
     const metadata = {
       date: today,
@@ -146,10 +146,10 @@ async function cacheResults(cacheKey, mainChoice) {
       timestamp: new Date().toISOString(),
       cacheKey: cacheKey
     };
-    
+
     await fs.writeFile(files.metadata, JSON.stringify(metadata, null, 2));
     console.log(`📦 Created metadata: ${files.metadata}`);
-    
+
     return true;
   } catch (error) {
     console.error(`❌ Cache save error: ${error.message}`);
@@ -183,20 +183,20 @@ function parseCSV(filePath) {
  */
 function parseMetrics(metricsString) {
   if (!metricsString) return [];
-  
+
   let cleaned = metricsString.toString().trim();
-  
+
   if (cleaned.startsWith('[') && cleaned.endsWith(']')) {
     cleaned = cleaned.slice(1, -1);
-    
+
     const metrics = [];
     let current = '';
     let inQuotes = false;
-    
+
     for (let i = 0; i < cleaned.length; i++) {
       const char = cleaned[i];
       const nextChar = cleaned[i + 1];
-      
+
       if ((char === '"' || char === "'") && (i === 0 || cleaned[i - 1] !== '\\')) {
         inQuotes = !inQuotes;
       } else if (char === ',' && !inQuotes && nextChar === ' ') {
@@ -208,13 +208,13 @@ function parseMetrics(metricsString) {
         current += char;
       }
     }
-    
+
     const lastItem = current.trim().replace(/^["']|["']$/g, '');
     if (lastItem) metrics.push(lastItem);
-    
+
     return metrics;
   }
-  
+
   return cleaned
     .split(',')
     .map(m => m.trim().replace(/^["']|["']$/g, ''))
@@ -226,14 +226,14 @@ function parseMetrics(metricsString) {
  */
 function mergeMetrics(results, watchlistData) {
   const metricsMap = {};
-  
+
   console.log('Processing watchlist data for metrics...');
-  
+
   if (watchlistData && watchlistData.length > 0) {
     watchlistData.forEach((row) => {
       const symbol = row.Symbol || row.symbol || row.SYMBOL;
       const signals = row.Signals || row.signals;
-      
+
       if (symbol && signals) {
         const cleanSymbol = symbol.trim().toUpperCase();
         const parsedMetrics = parseMetrics(signals);
@@ -241,33 +241,33 @@ function mergeMetrics(results, watchlistData) {
       }
     });
   }
-  
+
   console.log(`Total symbols with metrics in watchlist: ${Object.keys(metricsMap).length}`);
-  
+
   if (results.buy) {
     results.buy = results.buy.map(stock => {
       const symbol = (stock.Symbol || stock.SYMBOL || stock.symbol || '').trim().toUpperCase();
       const metrics = metricsMap[symbol] || [];
-      
+
       return {
         ...stock,
         metrics: metrics
       };
     });
   }
-  
+
   if (results.wait) {
     results.wait = results.wait.map(stock => {
       const symbol = (stock.Symbol || stock.SYMBOL || stock.symbol || '').trim().toUpperCase();
       const metrics = metricsMap[symbol] || [];
-      
+
       return {
         ...stock,
         metrics: metrics
       };
     });
   }
-  
+
   return results;
 }
 
@@ -278,19 +278,19 @@ async function cleanupOldCache() {
   try {
     const files = await fs.readdir(CACHE_DIR);
     const now = Date.now();
-    const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
-    
+    const maxAge = 365 * 24 * 60 * 60 * 1000; // 365 days (1 year)
+
     let cleaned = 0;
     for (const file of files) {
       const filePath = path.join(CACHE_DIR, file);
       const stats = await fs.stat(filePath);
-      
+
       if (now - stats.mtime.getTime() > maxAge) {
         await fs.unlink(filePath);
         cleaned++;
       }
     }
-    
+
     if (cleaned > 0) {
       console.log(`🧹 Cleaned up ${cleaned} old cache files`);
     }
@@ -306,7 +306,7 @@ app.post('/api/start-scan', async (req, res) => {
   const { mainChoice, universeChoice } = req.body;
   const scanId = `scan_${Date.now()}`;
   const cacheKey = getCacheKey(mainChoice, universeChoice);
-  
+
   console.log(`[${scanId}] Scan request: ${SCAN_TYPE_MAP[mainChoice]} - ${UNIVERSE_MAP[universeChoice]}`);
   console.log(`[${scanId}] Cache key: ${cacheKey}`);
 
@@ -329,12 +329,12 @@ app.post('/api/start-scan', async (req, res) => {
 
   // Check cache first
   const cacheExists = await checkCache(cacheKey, mainChoice);
-  
+
   if (cacheExists) {
     console.log(`[${scanId}] ✅ Loading from cache: ${cacheKey}`);
     scanState.progress = `Loading cached results from ${cacheKey}...`;
     scanState.fromCache = true;
-    
+
     try {
       const files = getCacheFiles(cacheKey);
       const results = {
@@ -342,15 +342,15 @@ app.post('/api/start-scan', async (req, res) => {
         wait: [],
         watchlist: []
       };
-      
+
       if (fsSync.existsSync(files.buy)) {
         results.buy = await parseCSV(files.buy);
       }
-      
+
       if (fsSync.existsSync(files.wait)) {
         results.wait = await parseCSV(files.wait);
       }
-      
+
       if (fsSync.existsSync(files.watchlist)) {
         results.watchlist = await parseCSV(files.watchlist);
         // Merge metrics
@@ -358,13 +358,13 @@ app.post('/api/start-scan', async (req, res) => {
       } else {
         scanState.results = results;
       }
-      
+
       scanState.progress = 'Loaded from cache';
       scanState.completed = true;
       scanState.logs = `✅ Results loaded from cache (${cacheKey})\nNo scan needed - using today's cached results.`;
-      
+
       console.log(`[${scanId}] Cache load complete: ${results.buy.length} BUY, ${results.wait.length} WAIT, ${results.watchlist.length} WATCHLIST`);
-      
+
       return;
     } catch (error) {
       console.error(`[${scanId}] Cache load failed: ${error.message}`);
@@ -394,38 +394,38 @@ app.post('/api/start-scan', async (req, res) => {
   pythonProcess.stderr.on('data', (data) => {
     const errorChunk = data.toString();
     scanState.logs += `[STDERR] ${errorChunk}\n`;
-    
-    const isWarning = errorChunk.includes('possibly delisted') || 
-                     errorChunk.includes('no timezone found') ||
-                     errorChunk.includes('Warning:') ||
-                     errorChunk.includes('FutureWarning') ||
-                     errorChunk.includes('DeprecationWarning');
-    
+
+    const isWarning = errorChunk.includes('possibly delisted') ||
+      errorChunk.includes('no timezone found') ||
+      errorChunk.includes('Warning:') ||
+      errorChunk.includes('FutureWarning') ||
+      errorChunk.includes('DeprecationWarning');
+
     if (!isWarning) {
       scanState.error = (scanState.error || '') + errorChunk;
     }
-    
+
     console.error(`[${scanId} STDERR]: ${errorChunk}`);
   });
 
   pythonProcess.on('close', async (code) => {
     console.log(`[${scanId}] Python script exited with code ${code}`);
-    
+
     if (code !== 0 && scanState.error && scanState.error.trim().length > 0) {
       scanState.completed = true;
       return;
     }
-    
+
     if (code === 0) {
       scanState.error = null;
     }
 
     try {
       scanState.progress = 'Caching results...';
-      
+
       // Cache the results
       await cacheResults(cacheKey, mainChoice);
-      
+
       // Load cached results
       const files = getCacheFiles(cacheKey);
       const results = {
@@ -433,22 +433,22 @@ app.post('/api/start-scan', async (req, res) => {
         wait: [],
         watchlist: []
       };
-      
+
       if (fsSync.existsSync(files.buy)) {
         results.buy = await parseCSV(files.buy);
       }
-      
+
       if (fsSync.existsSync(files.wait)) {
         results.wait = await parseCSV(files.wait);
       }
-      
+
       if (fsSync.existsSync(files.watchlist)) {
         results.watchlist = await parseCSV(files.watchlist);
         scanState.results = mergeMetrics(results, results.watchlist);
       } else {
         scanState.results = results;
       }
-      
+
       scanState.progress = 'Scan complete and cached.';
       console.log(`[${scanId}] Scan complete and cached: ${results.buy.length} BUY, ${results.wait.length} WAIT, ${results.watchlist.length} WATCHLIST`);
 
@@ -484,25 +484,25 @@ app.get('/api/scan-status/:scanId', (req, res) => {
  * Get final scan results
  */
 app.get('/api/scan-results/:scanId', (req, res) => {
-    const { scanId } = req.params;
-    const scan = activeScans.get(scanId);
+  const { scanId } = req.params;
+  const scan = activeScans.get(scanId);
 
-    if (!scan) {
-        return res.status(404).json({ error: 'Scan not found.' });
-    }
-    
-    if (!scan.completed) {
-        return res.status(202).json({ message: 'Scan still in progress.'});
-    }
+  if (!scan) {
+    return res.status(404).json({ error: 'Scan not found.' });
+  }
 
-    res.json({
-        logs: scan.logs,
-        results: scan.results,
-        error: scan.error,
-        fromCache: scan.fromCache
-    });
-    
-    activeScans.delete(scanId);
+  if (!scan.completed) {
+    return res.status(202).json({ message: 'Scan still in progress.' });
+  }
+
+  res.json({
+    logs: scan.logs,
+    results: scan.results,
+    error: scan.error,
+    fromCache: scan.fromCache
+  });
+
+  activeScans.delete(scanId);
 });
 
 // Serve performance tracker page
@@ -515,17 +515,17 @@ app.get('/performance.html', (req, res) => {
  */
 app.get('/api/performance/dates', async (req, res) => {
   const { universe } = req.query;
-  
+
   try {
     const files = await fs.readdir(CACHE_DIR);
     const dates = new Set();
-    
+
     console.log('📅 Scanning cache directory for dates...');
     console.log('   Universe filter:', universe || 'ALL');
     console.log('   Found files:', files.length);
-    
+
     // Extract unique dates from cache files, filtered by universe
-   files.forEach(file => {
+    files.forEach(file => {
       if (universe) {
         // Filter by specific universe and acceptable scan types (DAILY or COMBINED)
         const pattern_daily = new RegExp(`^(\\d{4}-\\d{2}-\\d{2})_DAILY_${universe}_`);
@@ -534,9 +534,9 @@ app.get('/api/performance/dates', async (req, res) => {
         let match = file.match(pattern_daily);
 
         if (!match) {
-            match = file.match(pattern_combined);
+          match = file.match(pattern_combined);
         }
-        
+
         if (match) {
           dates.add(match[1]);
           console.log('   ✓ Found date:', match[1], 'from', file);
@@ -554,10 +554,10 @@ app.get('/api/performance/dates', async (req, res) => {
         }
       }
     });
-    
+
     // Sort dates in descending order (newest first)
     const sortedDates = Array.from(dates).sort().reverse();
-    
+
     console.log(`📅 Available dates for ${universe || 'ALL'}:`, sortedDates);
     res.json({ dates: sortedDates });
   } catch (error) {
@@ -594,23 +594,23 @@ for symbol in symbols:
 
 print(json.dumps(prices))
 `;
-    
+
     const tempScriptPath = path.join(__dirname, 'temp_price_fetch.py');
     fsSync.writeFileSync(tempScriptPath, pythonScript);
-    
+
     const pythonProcess = spawn('python', [tempScriptPath]);
-    
+
     let output = '';
     let errorOutput = '';
-    
+
     pythonProcess.stdout.on('data', (data) => {
       output += data.toString();
     });
-    
+
     pythonProcess.stderr.on('data', (data) => {
       errorOutput += data.toString();
     });
-    
+
     pythonProcess.on('close', (code) => {
       // Clean up temp file
       try {
@@ -618,12 +618,12 @@ print(json.dumps(prices))
       } catch (err) {
         console.error('Failed to delete temp script:', err);
       }
-      
+
       if (code !== 0) {
         console.error('Python price fetch failed:', errorOutput);
         return resolve({}); // Return empty object on failure
       }
-      
+
       try {
         const prices = JSON.parse(output.trim());
         resolve(prices);
@@ -632,7 +632,7 @@ print(json.dumps(prices))
         resolve({});
       }
     });
-    
+
     // Timeout after 60 seconds
     setTimeout(() => {
       pythonProcess.kill();
@@ -646,68 +646,68 @@ print(json.dumps(prices))
  */
 app.get('/api/performance/analyze', async (req, res) => {
   const { date, universe } = req.query;
-  
+
   console.log(`\n📊 Performance Analysis Request:`);
   console.log(`   Date: ${date}`);
   console.log(`   Universe: ${universe}`);
-  
+
   if (!date || !universe) {
     return res.status(400).json({ error: 'Date and universe required' });
   }
-  
+
   try {
     let cacheKey = `${date}_DAILY_${universe}`;
     let buyFile = path.join(CACHE_DIR, `${cacheKey}_BUY.csv`);
-    
+
     console.log(`   Looking for: ${buyFile}`);
     console.log(`   File exists: ${fsSync.existsSync(buyFile)}`);
-    
-   // 2. If not found, check for the file saved as a COMBINED scan
+
+    // 2. If not found, check for the file saved as a COMBINED scan
     if (!fsSync.existsSync(buyFile)) {
-        console.log(`   DAILY file not found. Checking for COMBINED scan...`);
-        cacheKey = `${date}_COMBINED_${universe}`;
-        buyFile = path.join(CACHE_DIR, `${cacheKey}_BUY.csv`);
+      console.log(`   DAILY file not found. Checking for COMBINED scan...`);
+      cacheKey = `${date}_COMBINED_${universe}`;
+      buyFile = path.join(CACHE_DIR, `${cacheKey}_BUY.csv`);
     }
 
     console.log(`   Looking for: ${buyFile}`);
     console.log(`   File exists: ${fsSync.existsSync(buyFile)}`);
-    
+
     if (!fsSync.existsSync(buyFile)) {
-        // List what files DO exist for debugging
-        const allFiles = await fs.readdir(CACHE_DIR);
-        console.log(`   Available cache files:`, allFiles.filter(f => f.includes(date)));
-        return res.status(404).json({ 
-          error: `No scan data found for ${date} and ${universe}`,
-          hint: 'Make sure you have run a DAILY or COMBINED scan for this date and universe'
-        });
+      // List what files DO exist for debugging
+      const allFiles = await fs.readdir(CACHE_DIR);
+      console.log(`   Available cache files:`, allFiles.filter(f => f.includes(date)));
+      return res.status(404).json({
+        error: `No scan data found for ${date} and ${universe}`,
+        hint: 'Make sure you have run a DAILY or COMBINED scan for this date and universe'
+      });
     }
-    
+
     console.log(`   ✓ Found BUY file, parsing...`);
-    
+
     // Read historical BUY signals
     const historicalSignals = await parseCSV(buyFile);
-    
+
     if (!historicalSignals || historicalSignals.length === 0) {
       return res.status(404).json({ error: 'No BUY signals found in file' });
     }
-    
+
     console.log(`   ✓ Loaded ${historicalSignals.length} signals`);
-    
+
     // Calculate days held
     const scanDate = new Date(date);
     const today = new Date();
     const daysHeld = Math.floor((today - scanDate) / (1000 * 60 * 60 * 24));
-    
+
     console.log(`   Days held: ${daysHeld}`);
-    
+
     // Fetch current prices for all symbols using yfinance via Python
     const symbols = historicalSignals.map(s => s.Symbol);
     console.log(`   Fetching current prices for ${symbols.length} symbols...`);
-    
+
     const currentPrices = await fetchCurrentPrices(symbols);
-    
+
     console.log(`   ✓ Fetched ${Object.keys(currentPrices).length} prices`);
-    
+
     // Calculate performance for each signal
     const signals = historicalSignals.map(signal => {
       const symbol = signal.Symbol;
@@ -715,13 +715,13 @@ app.get('/api/performance/analyze', async (req, res) => {
       const stopLoss = parseFloat(signal.Stop_Loss || 0);
       const target1 = parseFloat(signal.Target_1 || 0);
       const currentPrice = currentPrices[symbol];
-      
+
       let returnPct = null;
       let status = 'NO_DATA';
-      
+
       if (currentPrice && signalPrice) {
         returnPct = ((currentPrice - signalPrice) / signalPrice) * 100;
-        
+
         // Determine status
         if (target1 && currentPrice >= target1) {
           status = 'TARGET_HIT';
@@ -731,7 +731,7 @@ app.get('/api/performance/analyze', async (req, res) => {
           status = 'OPEN';
         }
       }
-      
+
       return {
         symbol: symbol,
         grade: signal.Grade || 'N/A',
@@ -744,16 +744,16 @@ app.get('/api/performance/analyze', async (req, res) => {
         status: status
       };
     });
-    
+
     // Calculate summary statistics
     const validReturns = signals.filter(s => s.returnPct !== null);
     const avgReturn = validReturns.length > 0
       ? validReturns.reduce((sum, s) => sum + s.returnPct, 0) / validReturns.length
       : 0;
     const winners = validReturns.filter(s => s.returnPct > 0).length;
-    
+
     console.log(`   ✓ Analysis complete: Avg return ${avgReturn.toFixed(2)}%, ${winners}/${validReturns.length} winners`);
-    
+
     res.json({
       scanDate: date,
       daysHeld: daysHeld,
@@ -762,7 +762,7 @@ app.get('/api/performance/analyze', async (req, res) => {
       winners: winners,
       signals: signals.sort((a, b) => (b.returnPct || 0) - (a.returnPct || 0))
     });
-    
+
   } catch (error) {
     console.error('❌ Performance analysis error:', error);
     res.status(500).json({ error: 'Failed to analyze performance: ' + error.message });

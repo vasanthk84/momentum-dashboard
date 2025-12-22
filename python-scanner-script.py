@@ -99,6 +99,15 @@ def run_scan():
     scanner = TwoTierEnhancedScanner()
     scanner.symbols = symbols
     
+    # Set universe name for DB persistence
+    if universe_choice == '6':
+        scanner.universe = 'ALL_Files'
+    elif universe_choice in Config.STOCK_UNIVERSES:
+        # Config.STOCK_UNIVERSES[choice] returns (filename, description)
+        scanner.universe = Config.STOCK_UNIVERSES[universe_choice][1]
+    else:
+        scanner.universe = f"Unknown_{universe_choice}"
+    
     # --- Execute Scan ---
     exit_code = 0
     try:
