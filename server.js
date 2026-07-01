@@ -103,7 +103,7 @@ if (!fsSync.existsSync(CACHE_DIR)) {
   console.log(`📁 Created cache directory: ${CACHE_DIR}`);
 }
 
-// Map choices to descriptive names
+// Map choices to descriptive names (used for cache keys and display)
 const UNIVERSE_MAP = {
   '1': 'Nifty_50',
   '2': 'Nifty_Next_50',
@@ -112,6 +112,17 @@ const UNIVERSE_MAP = {
   '5': 'Small_Cap',
   '6': 'ALL_Files',
   '7': 'Quality_Universe',
+};
+
+// Exact universe names as stored by Python in the DB
+const DB_UNIVERSE_MAP = {
+  '1': 'Nifty 50',
+  '2': 'Nifty Next 50',
+  '3': 'Large Cap',
+  '4': 'Mid Cap',
+  '5': 'Small Cap',
+  '6': 'ALL_Files',
+  '7': 'Quality Universe',
 };
 
 // Prune scan states older than 2 hours to prevent memory leak
@@ -130,6 +141,113 @@ const SCAN_TYPE_MAP = {
   '2': 'DAILY',
   '3': 'COMBINED'
 };
+
+// ── DB-first helpers ──────────────────────────────────────────────────────────
+
+/** Normalize a daily_signals DB row to the CSV-column format the frontend expects */
+function normalizeDbSignal(row) {
+  const reasons      = tryParseJson(row.reasons,      []);
+  const waitFactors  = tryParseJson(row.wait_factors, []);
+  return {
+    Symbol:               row.symbol,
+    Grade:                row.grade,
+    Score:                row.score,
+    Current_Price:        row.signal_price ?? row.current_price,
+    Entry_Low:            row.entry_low,
+    Entry_High:           row.entry_high,
+    Stop_Loss:            row.stop_loss,
+    Target_1:             row.target_1,
+    Target_2:             row.target_2,
+    'Risk_%':             row.risk_pct,
+    Volume_Ratio:         row.volume_ratio,
+    Market_Trend:         row.market_trend,
+    VWAP:                 row.vwap,
+    'VWAP_Deviation_%':   row.vwap_deviation_pct,
+    Wyckoff_Phase:        row.wyckoff_phase,
+    Reason:               waitFactors.join('; ') || null,
+    metrics:              reasons,
+  };
+}
+
+/** Normalize a weekly_watchlist DB row to the CSV-column format the frontend expects */
+function normalizeDbWatchlist(row) {
+  const signals = tryParseJson(row.signals, []);
+  return {
+    Symbol:       row.symbol,
+    Stage:        row.stage,
+    Total_Score:  row.total_score,
+    Current_Price: row.current_price ?? row.signal_price,
+    Stop_Price:   row.stop_price,
+    Risk_Reward:  row.risk_reward,
+    RS_Score:     row.rs_score,
+    Base_Quality: row.base_quality,
+    metrics:      signals,
+  };
+}
+
+/** Check if today's scan data exists in DB (replaces checkCache) */
+async function checkDbCache(mainChoice, universeChoice) {
+  if (!db) return false;
+  const dbUniverse = DB_UNIVERSE_MAP[universeChoice] || UNIVERSE_MAP[universeChoice];
+  const today = new Date().toISOString().split('T')[0];
+  try {
+    if (mainChoice === '1') {
+      const row = await dbGet(
+        `SELECT COUNT(*) as n FROM weekly_watchlist WHERE DATE(scan_date) = DATE(?) AND universe = ?`,
+        [today, dbUniverse]
+      );
+      return (row?.n ?? 0) > 0;
+    } else {
+      const row = await dbGet(
+        `SELECT COUNT(*) as n FROM daily_signals WHERE DATE(scan_date) = DATE(?) AND universe = ?`,
+        [today, dbUniverse]
+      );
+      return (row?.n ?? 0) > 0;
+    }
+  } catch { return false; }
+}
+
+/** Load today's scan results from DB (replaces CSV parseCSV flow) */
+async function loadFromDb(mainChoice, universeChoice) {
+  const dbUniverse = DB_UNIVERSE_MAP[universeChoice] || UNIVERSE_MAP[universeChoice];
+  const today = new Date().toISOString().split('T')[0];
+
+  const needsDaily     = mainChoice === '2' || mainChoice === '3';
+  const needsWatchlist = mainChoice === '1' || mainChoice === '3';
+
+  const [buyRows, waitRows, watchlistRows] = await Promise.all([
+    needsDaily
+      ? dbAll(`SELECT * FROM daily_signals WHERE decision='BUY'  AND DATE(scan_date)=DATE(?) AND universe=? ORDER BY score DESC`, [today, dbUniverse])
+      : Promise.resolve([]),
+    needsDaily
+      ? dbAll(`SELECT * FROM daily_signals WHERE decision='WAIT' AND DATE(scan_date)=DATE(?) AND universe=? ORDER BY score DESC`, [today, dbUniverse])
+      : Promise.resolve([]),
+    needsWatchlist
+      ? dbAll(`SELECT * FROM weekly_watchlist WHERE DATE(scan_date)=DATE(?) AND universe=? ORDER BY total_score DESC`, [today, dbUniverse])
+      : Promise.resolve([]),
+  ]);
+
+  return {
+    buy:       buyRows.map(normalizeDbSignal),
+    wait:      waitRows.map(normalizeDbSignal),
+    watchlist: watchlistRows.map(normalizeDbWatchlist),
+  };
+}
+
+/** Delete leftover CSV files Python emits (BUY_SIGNALS_*, WAIT_LIST_*, watchlist_momentum_current.csv) */
+async function cleanupScanCsvFiles() {
+  try {
+    const files = await fs.readdir(__dirname);
+    for (const f of files) {
+      if (/^(BUY_SIGNALS_|WAIT_LIST_).*\.csv$/.test(f) || f === 'watchlist_momentum_current.csv') {
+        await fs.unlink(path.join(__dirname, f)).catch(() => {});
+        console.log(`🧹 Removed leftover CSV: ${f}`);
+      }
+    }
+  } catch (err) {
+    console.error('CSV cleanup error:', err.message);
+  }
+}
 
 /**
  * Generate cache key based on date, scan type, and universe
@@ -430,53 +548,25 @@ app.post('/api/start-scan', async (req, res) => {
 
   res.json({ scanId });
 
-  // Cleanup old cache in background
-  cleanupOldCache().catch(err => console.error('Cache cleanup failed:', err));
+  // Check DB first — skip Python if today's data already exists
+  const dbCached = await checkDbCache(mainChoice, universeChoice);
 
-  // Check cache first
-  const cacheExists = await checkCache(cacheKey, mainChoice);
-
-  if (cacheExists) {
-    console.log(`[${scanId}] ✅ Loading from cache: ${cacheKey}`);
-    scanState.progress = `Loading cached results from ${cacheKey}...`;
+  if (dbCached) {
+    console.log(`[${scanId}] ✅ DB cache hit — loading from database`);
+    scanState.progress = 'Loading today\'s results from database...';
     scanState.fromCache = true;
-
     try {
-      const files = getCacheFiles(cacheKey);
-      const results = {
-        buy: [],
-        wait: [],
-        watchlist: []
-      };
-
-      if (fsSync.existsSync(files.buy)) {
-        results.buy = await parseCSV(files.buy);
-      }
-
-      if (fsSync.existsSync(files.wait)) {
-        results.wait = await parseCSV(files.wait);
-      }
-
-      if (fsSync.existsSync(files.watchlist)) {
-        results.watchlist = await parseCSV(files.watchlist);
-        // Merge metrics
-        scanState.results = mergeMetrics(results, results.watchlist);
-      } else {
-        scanState.results = results;
-      }
-
-      scanState.progress = 'Loaded from cache';
+      scanState.results = await loadFromDb(mainChoice, universeChoice);
+      const { buy, wait, watchlist } = scanState.results;
+      scanState.progress = 'Loaded from DB';
       scanState.completed = true;
-      scanState.logs = `✅ Results loaded from cache (${cacheKey})\nNo scan needed - using today's cached results.`;
-
-      console.log(`[${scanId}] Cache load complete: ${results.buy.length} BUY, ${results.wait.length} WAIT, ${results.watchlist.length} WATCHLIST`);
-
-      return;
-    } catch (error) {
-      console.error(`[${scanId}] Cache load failed: ${error.message}`);
-      scanState.progress = 'Cache load failed, running fresh scan...';
+      scanState.logs = `✅ Results loaded from database (${new Date().toISOString().split('T')[0]})\nBUY: ${buy.length}  WAIT: ${wait.length}  WATCHLIST: ${watchlist.length}`;
+      console.log(`[${scanId}] DB load: ${buy.length} BUY, ${wait.length} WAIT, ${watchlist.length} WATCHLIST`);
+    } catch (err) {
+      console.error(`[${scanId}] DB load failed: ${err.message} — falling through to fresh scan`);
       scanState.fromCache = false;
     }
+    if (scanState.completed) return;
   }
 
   // Run fresh scan
@@ -546,40 +636,26 @@ app.post('/api/start-scan', async (req, res) => {
     }
 
     try {
-      scanState.progress = 'Caching results...';
+      scanState.progress = 'Reading results from database...';
 
-      // Cache the results
-      await cacheResults(cacheKey, mainChoice);
+      // Clean up CSV files Python wrote (DB is the source of truth now)
+      await cleanupScanCsvFiles();
 
-      // Load cached results
-      const files = getCacheFiles(cacheKey);
-      const results = {
-        buy: [],
-        wait: [],
-        watchlist: []
-      };
+      // Reconnect DB if Python just created it on first run
+      openDbIfNeeded();
+      // Brief pause so SQLite WAL checkpoint completes
+      await new Promise(r => setTimeout(r, 800));
 
-      if (fsSync.existsSync(files.buy)) {
-        results.buy = await parseCSV(files.buy);
-      }
+      const results = await loadFromDb(mainChoice, universeChoice);
+      scanState.results = results;
 
-      if (fsSync.existsSync(files.wait)) {
-        results.wait = await parseCSV(files.wait);
-      }
-
-      if (fsSync.existsSync(files.watchlist)) {
-        results.watchlist = await parseCSV(files.watchlist);
-        scanState.results = mergeMetrics(results, results.watchlist);
-      } else {
-        scanState.results = results;
-      }
-
-      scanState.progress = 'Scan complete and cached.';
-      console.log(`[${scanId}] Scan complete and cached: ${results.buy.length} BUY, ${results.wait.length} WAIT, ${results.watchlist.length} WATCHLIST`);
+      const { buy, wait, watchlist } = results;
+      scanState.progress = 'Scan complete.';
+      console.log(`[${scanId}] Scan complete (DB): ${buy.length} BUY, ${wait.length} WAIT, ${watchlist.length} WATCHLIST`);
 
     } catch (err) {
-      console.error(`[${scanId}] Failed to process results: ${err.message}`);
-      scanState.error = 'Failed to process scan results.';
+      console.error(`[${scanId}] Failed to read DB results: ${err.message}`);
+      scanState.error = 'Scan ran but failed to read results from database.';
     } finally {
       scanState.completed = true;
     }
@@ -632,57 +708,27 @@ app.get('/api/scan-results/:scanId', (req, res) => {
 
 
 /**
- * Get available dates for performance tracking (filtered by universe)
+ * Get available dates for performance tracking — queries DB directly
  */
 app.get('/api/performance/dates', async (req, res) => {
   const { universe } = req.query;
-
   try {
-    const files = await fs.readdir(CACHE_DIR);
-    const dates = new Set();
-
-    console.log('📅 Scanning cache directory for dates...');
-    console.log('   Universe filter:', universe || 'ALL');
-    console.log('   Found files:', files.length);
-
-    // Extract unique dates from cache files, filtered by universe
-    files.forEach(file => {
-      if (universe) {
-        // Filter by specific universe and acceptable scan types (DAILY or COMBINED)
-        const pattern_daily = new RegExp(`^(\\d{4}-\\d{2}-\\d{2})_DAILY_${universe}_`);
-        const pattern_combined = new RegExp(`^(\\d{4}-\\d{2}-\\d{2})_COMBINED_${universe}_`);
-
-        let match = file.match(pattern_daily);
-
-        if (!match) {
-          match = file.match(pattern_combined);
-        }
-
-        if (match) {
-          dates.add(match[1]);
-          console.log('   ✓ Found date:', match[1], 'from', file);
-        }
-      } else {
-        // No filter, show all DAILY or COMBINED scans
-        const match_daily = file.match(/^(\d{4}-\d{2}-\d{2})_DAILY_/);
-        const match_combined = file.match(/^(\d{4}-\d{2}-\d{2})_COMBINED_/);
-
-        let match = match_daily || match_combined;
-
-        if (match) {
-          dates.add(match[1]);
-          console.log('   ✓ Found date:', match[1], 'from', file);
-        }
-      }
-    });
-
-    // Sort dates in descending order (newest first)
-    const sortedDates = Array.from(dates).sort().reverse();
-
-    console.log(`📅 Available dates for ${universe || 'ALL'}:`, sortedDates);
-    res.json({ dates: sortedDates });
-  } catch (error) {
-    console.error('❌ Error getting dates:', error);
+    let query = `SELECT DISTINCT DATE(scan_date) as d FROM daily_signals WHERE 1=1`;
+    const params = [];
+    if (universe) {
+      // universe param comes in as UNIVERSE_MAP value (underscore format); find the DB name
+      const choice = Object.keys(UNIVERSE_MAP).find(k => UNIVERSE_MAP[k] === universe);
+      const dbUniverse = choice ? (DB_UNIVERSE_MAP[choice] || universe) : universe;
+      query += ` AND universe = ?`;
+      params.push(dbUniverse);
+    }
+    query += ` ORDER BY d DESC LIMIT 90`;
+    const rows = await dbAll(query, params);
+    const dates = rows.map(r => r.d).filter(Boolean);
+    console.log(`📅 DB dates for ${universe || 'ALL'}: ${dates.length} found`);
+    res.json({ dates });
+  } catch (err) {
+    console.error('❌ Error getting dates from DB:', err);
     res.status(500).json({ error: 'Failed to load dates' });
   }
 });
@@ -764,250 +810,178 @@ print(json.dumps(prices))
 }
 
 /**
- * Analyze performance of a historical scan
+ * Analyze performance of a historical scan — reads from DB
  */
 app.get('/api/performance/analyze', async (req, res) => {
   const { date, universe } = req.query;
 
-  console.log(`\n📊 Performance Analysis Request:`);
-  console.log(`   Date: ${date}`);
-  console.log(`   Universe: ${universe}`);
+  console.log(`\n📊 Performance Analysis: date=${date} universe=${universe}`);
 
   if (!date || !universe) {
     return res.status(400).json({ error: 'Date and universe required' });
   }
 
   try {
-    let cacheKey = `${date}_DAILY_${universe}`;
-    let buyFile = path.join(CACHE_DIR, `${cacheKey}_BUY.csv`);
+    // universe param arrives as UNIVERSE_MAP value (underscore); resolve to DB name
+    const choice = Object.keys(UNIVERSE_MAP).find(k => UNIVERSE_MAP[k] === universe);
+    const dbUniverse = choice ? (DB_UNIVERSE_MAP[choice] || universe) : universe;
 
-    console.log(`   Looking for: ${buyFile}`);
-    console.log(`   File exists: ${fsSync.existsSync(buyFile)}`);
+    const rows = await dbAll(
+      `SELECT symbol, grade, score, signal_price, current_price, stop_loss, target_1, risk_pct
+       FROM daily_signals
+       WHERE decision = 'BUY' AND DATE(scan_date) = DATE(?) AND universe = ?
+       ORDER BY score DESC`,
+      [date, dbUniverse]
+    );
 
-    // 2. If not found, check for the file saved as a COMBINED scan
-    if (!fsSync.existsSync(buyFile)) {
-      console.log(`   DAILY file not found. Checking for COMBINED scan...`);
-      cacheKey = `${date}_COMBINED_${universe}`;
-      buyFile = path.join(CACHE_DIR, `${cacheKey}_BUY.csv`);
-    }
-
-    console.log(`   Looking for: ${buyFile}`);
-    console.log(`   File exists: ${fsSync.existsSync(buyFile)}`);
-
-    if (!fsSync.existsSync(buyFile)) {
-      // List what files DO exist for debugging
-      const allFiles = await fs.readdir(CACHE_DIR);
-      console.log(`   Available cache files:`, allFiles.filter(f => f.includes(date)));
+    if (!rows.length) {
       return res.status(404).json({
-        error: `No scan data found for ${date} and ${universe}`,
-        hint: 'Make sure you have run a DAILY or COMBINED scan for this date and universe'
+        error: `No BUY signals in DB for ${date} / ${universe}`,
+        hint: 'Run a Daily scan for this date and universe first',
       });
     }
 
-    console.log(`   ✓ Found BUY file, parsing...`);
+    console.log(`   ✓ ${rows.length} signals from DB`);
 
-    // Read historical BUY signals
-    const historicalSignals = await parseCSV(buyFile);
-
-    if (!historicalSignals || historicalSignals.length === 0) {
-      return res.status(404).json({ error: 'No BUY signals found in file' });
-    }
-
-    console.log(`   ✓ Loaded ${historicalSignals.length} signals`);
-
-    // Calculate days held
     const scanDate = new Date(date);
-    const today = new Date();
-    const daysHeld = Math.floor((today - scanDate) / (1000 * 60 * 60 * 24));
+    const daysHeld = Math.floor((Date.now() - scanDate) / (1000 * 60 * 60 * 24));
 
-    console.log(`   Days held: ${daysHeld}`);
-
-    // Fetch current prices for all symbols using yfinance via Python
-    const symbols = historicalSignals.map(s => s.Symbol);
-    console.log(`   Fetching current prices for ${symbols.length} symbols...`);
-
+    const symbols = rows.map(r => r.symbol);
+    console.log(`   Fetching live prices for ${symbols.length} symbols…`);
     const currentPrices = await fetchCurrentPrices(symbols);
+    console.log(`   ✓ ${Object.keys(currentPrices).length} prices received`);
 
-    console.log(`   ✓ Fetched ${Object.keys(currentPrices).length} prices`);
-
-    // Calculate performance for each signal
-    const signals = historicalSignals.map(signal => {
-      const symbol = signal.Symbol;
-      const signalPrice = parseFloat(signal.Current_Price || signal.Signal_Price || 0);
-      const stopLoss = parseFloat(signal.Stop_Loss || 0);
-      const target1 = parseFloat(signal.Target_1 || 0);
-      const currentPrice = currentPrices[symbol];
+    const signals = rows.map(r => {
+      const signalPrice  = r.signal_price ?? r.current_price ?? 0;
+      const currentPrice = currentPrices[r.symbol] ?? null;
+      const stopLoss     = r.stop_loss ?? 0;
+      const target1      = r.target_1  ?? 0;
 
       let returnPct = null;
       let status = 'NO_DATA';
-
       if (currentPrice && signalPrice) {
         returnPct = ((currentPrice - signalPrice) / signalPrice) * 100;
-
-        // Determine status
-        if (target1 && currentPrice >= target1) {
-          status = 'TARGET_HIT';
-        } else if (stopLoss && currentPrice <= stopLoss) {
-          status = 'STOP_HIT';
-        } else {
-          status = 'OPEN';
-        }
+        if (target1 && currentPrice >= target1)     status = 'TARGET_HIT';
+        else if (stopLoss && currentPrice <= stopLoss) status = 'STOP_HIT';
+        else                                           status = 'OPEN';
       }
 
       return {
-        symbol: symbol,
-        grade: signal.Grade || 'N/A',
-        score: parseInt(signal.Score) || 0,
-        signalPrice: signalPrice,
-        currentPrice: currentPrice,
-        stopLoss: stopLoss,
-        target1: target1,
-        riskPct: parseFloat(signal['Risk_%'] || signal.Risk_Pct || 0),
-        returnPct: returnPct,
-        status: status
+        symbol:       r.symbol,
+        grade:        r.grade || 'N/A',
+        score:        r.score ?? 0,
+        signalPrice,
+        currentPrice,
+        stopLoss,
+        target1,
+        riskPct:      r.risk_pct ?? 0,
+        returnPct,
+        status,
       };
     });
 
-    // Calculate summary statistics
-    const validReturns = signals.filter(s => s.returnPct !== null);
-    const avgReturn = validReturns.length > 0
-      ? validReturns.reduce((sum, s) => sum + s.returnPct, 0) / validReturns.length
+    const valid   = signals.filter(s => s.returnPct !== null);
+    const avgReturn = valid.length
+      ? valid.reduce((sum, s) => sum + s.returnPct, 0) / valid.length
       : 0;
-    // winners = TARGET_HIT count (not just returnPct > 0, which is misleading)
     const winners = signals.filter(s => s.status === 'TARGET_HIT').length;
 
-    console.log(`   ✓ Analysis complete: Avg return ${avgReturn.toFixed(2)}%, ${winners}/${validReturns.length} winners`);
-
+    console.log(`   ✓ avgReturn=${avgReturn.toFixed(2)}% winners=${winners}/${valid.length}`);
     res.json({
       scanDate: date,
-      daysHeld: daysHeld,
+      daysHeld,
       totalSignals: signals.length,
-      avgReturn: avgReturn,
-      winners: winners,
-      signals: signals.sort((a, b) => (b.returnPct || 0) - (a.returnPct || 0))
+      avgReturn,
+      winners,
+      signals: signals.sort((a, b) => (b.returnPct ?? 0) - (a.returnPct ?? 0)),
     });
 
-  } catch (error) {
-    console.error('❌ Performance analysis error:', error);
-    res.status(500).json({ error: 'Failed to analyze performance: ' + error.message });
+  } catch (err) {
+    console.error('❌ Performance analysis error:', err);
+    res.status(500).json({ error: 'Failed to analyze performance: ' + err.message });
   }
 });
 
 /**
- * BATCH ANALYTICS ENDPOINT
- * Analyzes multiple past scans to generate aggregate statistics
+ * BATCH ANALYTICS — reads from DB, no CSV dependency
  */
 app.get('/api/analytics/batch', async (req, res) => {
-  const { universe, limit = 5 } = req.query; // Default to last 5 scans
+  const { universe, limit = 5 } = req.query;
 
-  if (!universe) {
-    return res.status(400).json({ error: 'Universe is required' });
-  }
+  if (!universe) return res.status(400).json({ error: 'Universe is required' });
 
-  console.log(`\n📊 Batch Analytics Request: ${universe} (Last ${limit} scans)`);
+  console.log(`\n📊 Batch Analytics (DB): universe=${universe} limit=${limit}`);
 
   try {
-    // 1. Get all available dates
-    const files = await fs.readdir(CACHE_DIR);
-    const dates = new Set();
-    
-    files.forEach(file => {
-      // Match DAILY or COMBINED files for this universe
-      const dailyMatch = file.match(new RegExp(`^(\\d{4}-\\d{2}-\\d{2})_DAILY_${universe}_`));
-      const combinedMatch = file.match(new RegExp(`^(\\d{4}-\\d{2}-\\d{2})_COMBINED_${universe}_`));
-      
-      if (dailyMatch) dates.add(dailyMatch[1]);
-      if (combinedMatch) dates.add(combinedMatch[1]);
-    });
+    // Resolve universe name to DB format
+    const choice = Object.keys(UNIVERSE_MAP).find(k => UNIVERSE_MAP[k] === universe);
+    const dbUniverse = choice ? (DB_UNIVERSE_MAP[choice] || universe) : universe;
 
-    // Sort dates descending and take the requested limit
-    const recentDates = Array.from(dates).sort().reverse().slice(0, parseInt(limit));
-    
-    if (recentDates.length === 0) {
-      return res.status(404).json({ error: 'No scan history found for this universe' });
+    // Distinct scan dates for this universe in DB
+    const dateRows = await dbAll(
+      `SELECT DISTINCT DATE(scan_date) as d FROM daily_signals
+       WHERE decision='BUY' AND universe=?
+       ORDER BY d DESC LIMIT ?`,
+      [dbUniverse, parseInt(limit) || 5]
+    );
+
+    const recentDates = dateRows.map(r => r.d).filter(Boolean);
+    if (!recentDates.length) {
+      return res.status(404).json({ error: 'No scan history in DB for this universe' });
     }
 
-    console.log(`   Analyzing dates: ${recentDates.join(', ')}`);
+    console.log(`   DB dates: ${recentDates.join(', ')}`);
 
-    // 2. Load signals from these dates
-    let allSignals = [];
-    const symbolsToFetch = new Set();
+    // Load all BUY signals for those dates in one query
+    const placeholders = recentDates.map(() => '?').join(',');
+    const rows = await dbAll(
+      `SELECT *, DATE(scan_date) as _date FROM daily_signals
+       WHERE decision='BUY' AND universe=? AND DATE(scan_date) IN (${placeholders})
+       ORDER BY scan_date DESC`,
+      [dbUniverse, ...recentDates]
+    );
 
-    for (const date of recentDates) {
-      // Try DAILY then COMBINED
-      let filePath = path.join(CACHE_DIR, `${date}_DAILY_${universe}_BUY.csv`);
-      if (!fsSync.existsSync(filePath)) {
-        filePath = path.join(CACHE_DIR, `${date}_COMBINED_${universe}_BUY.csv`);
-      }
+    console.log(`   ${rows.length} signals from DB, fetching live prices…`);
+    const symbols = [...new Set(rows.map(r => r.symbol))];
+    const currentPrices = await fetchCurrentPrices(symbols);
+    console.log(`   ✓ ${Object.keys(currentPrices).length} prices`);
 
-      if (fsSync.existsSync(filePath)) {
-        const signals = await parseCSV(filePath);
-        signals.forEach(s => {
-            // Attach scan date to signal for aging calc
-            s._scanDate = date; 
-            allSignals.push(s);
-            symbolsToFetch.add(s.Symbol);
-        });
-      }
-    }
-
-    console.log(`   Loaded ${allSignals.length} total signals across ${recentDates.length} days`);
-    console.log(`   Fetching live prices for ${symbolsToFetch.size} unique symbols...`);
-
-    // 3. Batch fetch current prices
-    // Note: If list is huge (>500), you might want to chunk this. 
-    // For now, assuming reasonable size < 200.
-    const currentPrices = await fetchCurrentPrices(Array.from(symbolsToFetch));
-
-    // 4. Calculate Performance Metrics
-    const analyzedSignals = allSignals.map(signal => {
-      const symbol = signal.Symbol;
-      const entryPrice = parseFloat(signal.Current_Price || signal.Signal_Price || 0);
-      const currentPrice = currentPrices[symbol];
-      const scanDate = new Date(signal._scanDate);
-      const today = new Date();
-      const daysHeld = Math.floor((today - scanDate) / (1000 * 60 * 60 * 24));
+    const analyzedSignals = rows.map(r => {
+      const entryPrice   = r.signal_price ?? r.current_price ?? 0;
+      const currentPrice = currentPrices[r.symbol] ?? null;
+      const daysHeld     = Math.floor((Date.now() - new Date(r._date)) / 864e5);
 
       let returnPct = 0;
       let status = 'OPEN';
-
       if (currentPrice && entryPrice) {
         returnPct = ((currentPrice - entryPrice) / entryPrice) * 100;
-        
-        const stopLoss = parseFloat(signal.Stop_Loss || 0);
-        const target1 = parseFloat(signal.Target_1 || 0);
-
-        if (target1 && currentPrice >= target1) status = 'TARGET_HIT';
-        else if (stopLoss && currentPrice <= stopLoss) status = 'STOP_HIT';
-        else status = returnPct > 0 ? 'PROFIT' : 'LOSS';
+        if (r.target_1 && currentPrice >= r.target_1)       status = 'TARGET_HIT';
+        else if (r.stop_loss && currentPrice <= r.stop_loss) status = 'STOP_HIT';
+        else                                                  status = returnPct > 0 ? 'PROFIT' : 'LOSS';
       }
 
       return {
-        symbol,
-        date: signal._scanDate,
-        grade: signal.Grade || 'N/A',
-        score: parseInt(signal.Score) || 0,
+        symbol:       r.symbol,
+        date:         r._date,
+        grade:        r.grade || 'N/A',
+        score:        r.score ?? 0,
         returnPct,
         daysHeld,
         status,
-        volumeRatio: parseFloat(signal.Volume_Ratio || 0),
-        vwapDeviation: parseFloat(signal['VWAP_Deviation_%'] || 0),
-        marketTrend: signal.Market_Trend || 'Neutral',
-        riskPct: parseFloat(signal['Risk_%'] || signal.Risk_Pct || 0),
-        stopLoss: parseFloat(signal.Stop_Loss || 0),
-        target1: parseFloat(signal.Target_1 || 0),
+        volumeRatio:  r.volume_ratio ?? 0,
+        vwapDeviation: r.vwap_deviation_pct ?? 0,
+        marketTrend:  r.market_trend || 'Neutral',
+        riskPct:      r.risk_pct ?? 0,
+        stopLoss:     r.stop_loss ?? 0,
+        target1:      r.target_1  ?? 0,
       };
     });
 
-    res.json({
-      dates: recentDates,
-      totalSignals: analyzedSignals.length,
-      signals: analyzedSignals
-    });
+    res.json({ dates: recentDates, totalSignals: analyzedSignals.length, signals: analyzedSignals });
 
-  } catch (error) {
-    console.error('❌ Batch analytics error:', error);
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    console.error('❌ Batch analytics error:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 

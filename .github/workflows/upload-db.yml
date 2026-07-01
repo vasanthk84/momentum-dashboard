@@ -1,0 +1,54 @@
+name: Upload Database to Server (one-time seed)
+
+# One-time job to push your local scan_history.db to the DO server.
+#
+# HOW TO USE:
+#   1. Encode your local DB:
+#        base64 -w 0 scan_history.db > /tmp/db.b64   (Linux/Mac)
+#        [Convert]::ToBase64String([IO.File]::ReadAllBytes('scan_history.db')) | Out-File db.b64  (Windows PowerShell)
+#   2. Add the contents of db.b64 as a GitHub Secret named DB_BASE64
+#      (Settings → Secrets → Actions → New repository secret)
+#   3. Trigger this workflow from Actions → "Upload Database to Server"
+#
+# Note: GitHub Secrets support up to ~48 KB. For larger DBs, SCP directly:
+#   scp scan_history.db root@<DO_HOST>:/opt/momentum-scanner/scan_history.db
+
+on:
+  workflow_dispatch:
+
+jobs:
+  upload-db:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Decode DB from secret and upload to server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USERNAME }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          script: |
+            echo "${{ secrets.DB_BASE64 }}" | base64 -d > /opt/momentum-scanner/scan_history.db
+            chown root:root /opt/momentum-scanner/scan_history.db
+            ls -lh /opt/momentum-scanner/scan_history.db
+            echo "✅ Database uploaded successfully"
+
+      - name: Restart service so Node reconnects to new DB
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USERNAME }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          script: |
+            systemctl restart momentum-scanner
+            sleep 2
+            systemctl status momentum-scanner --no-pager | head -10
+
+      - name: Notify Telegram
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          EMOJI="✅"; [ "$STATUS" = "failure" ] && EMOJI="❌"
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d parse_mode="HTML" \
+            -d text="${EMOJI} <b>Momentum Scanner</b> — DB upload ${STATUS}%0A📅 $(date -u '+%Y-%m-%d %H:%M UTC')"

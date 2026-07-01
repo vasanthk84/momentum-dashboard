@@ -1,11 +1,27 @@
-﻿node_modules/
+# ── Node ──────────────────────────────────────────────────────────────────────
+node_modules/
 dist/
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# ── Scanner runtime outputs ───────────────────────────────────────────────────
 *.db
 scan_cache/
-.claude/
-__pycache__/
-*.log
-temp_price_fetch.py
+BUY_SIGNALS_*.csv
+WAIT_LIST_*.csv
+watchlist_momentum_current.csv
+temp_*.py
 
+# ── Secrets & local config ────────────────────────────────────────────────────
 .env
 resources/universe_master.csv
+
+# ── Logs & misc ───────────────────────────────────────────────────────────────
+*.log
+.DS_Store
+.claude/
