@@ -13,7 +13,7 @@ jobs:
 
       - name: Create deployment tarball
         run: |
-          tar -czf momentum-scanner.tar.gz \
+          tar --warning=no-file-changed -czf momentum-scanner.tar.gz \
             --exclude='momentum-scanner.tar.gz' \
             --exclude='node_modules' \
             --exclude='__pycache__' \
@@ -23,7 +23,7 @@ jobs:
             --exclude='scan_history.db' \
             --exclude='.env' \
             --exclude='dist' \
-            .
+            . || true
           echo "Tarball size: $(du -sh momentum-scanner.tar.gz | cut -f1)"
 
       - name: Copy files to server
