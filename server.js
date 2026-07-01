@@ -14,6 +14,21 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json());
 
+// Log every incoming request so we can diagnose issues
+app.use((req, _res, next) => {
+  console.log(`→ ${req.method} ${req.path}  body:`, JSON.stringify(req.body));
+  next();
+});
+
+// Catch JSON parse errors from express.json() and return a clear 400
+app.use((err, _req, res, next) => {
+  if (err.type === 'entity.parse.failed') {
+    console.error('JSON parse error:', err.message);
+    return res.status(400).json({ error: 'Invalid JSON body: ' + err.message });
+  }
+  next(err);
+});
+
 // In production (after `npm run build`), serve the Vite dist output.
 // In dev, Vite's own server handles static files and proxies /api to here.
 const DIST_DIR = path.join(__dirname, 'dist');
