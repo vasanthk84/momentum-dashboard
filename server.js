@@ -215,15 +215,22 @@ async function loadFromDb(mainChoice, universeChoice) {
   const needsDaily     = mainChoice === '2' || mainChoice === '3';
   const needsWatchlist = mainChoice === '1' || mainChoice === '3';
 
+  // Use MAX(scan_date) so multiple same-day runs don't stack up — only the latest run's rows
   const [buyRows, waitRows, watchlistRows] = await Promise.all([
     needsDaily
-      ? dbAll(`SELECT * FROM daily_signals WHERE decision='BUY'  AND DATE(scan_date)=DATE(?) AND universe=? ORDER BY score DESC`, [today, dbUniverse])
+      ? dbAll(`SELECT * FROM daily_signals WHERE decision='BUY' AND universe=?
+               AND scan_date=(SELECT MAX(scan_date) FROM daily_signals WHERE DATE(scan_date)=DATE(?) AND universe=?)
+               ORDER BY score DESC`, [dbUniverse, today, dbUniverse])
       : Promise.resolve([]),
     needsDaily
-      ? dbAll(`SELECT * FROM daily_signals WHERE decision='WAIT' AND DATE(scan_date)=DATE(?) AND universe=? ORDER BY score DESC`, [today, dbUniverse])
+      ? dbAll(`SELECT * FROM daily_signals WHERE decision='WAIT' AND universe=?
+               AND scan_date=(SELECT MAX(scan_date) FROM daily_signals WHERE DATE(scan_date)=DATE(?) AND universe=?)
+               ORDER BY score DESC`, [dbUniverse, today, dbUniverse])
       : Promise.resolve([]),
     needsWatchlist
-      ? dbAll(`SELECT * FROM weekly_watchlist WHERE DATE(scan_date)=DATE(?) AND universe=? ORDER BY total_score DESC`, [today, dbUniverse])
+      ? dbAll(`SELECT * FROM weekly_watchlist WHERE universe=?
+               AND scan_date=(SELECT MAX(scan_date) FROM weekly_watchlist WHERE DATE(scan_date)=DATE(?) AND universe=?)
+               ORDER BY total_score DESC`, [dbUniverse, today, dbUniverse])
       : Promise.resolve([]),
   ]);
 
@@ -613,7 +620,9 @@ app.post('/api/start-scan', async (req, res) => {
       errorChunk.includes('no timezone found') ||
       errorChunk.includes('Warning:') ||
       errorChunk.includes('FutureWarning') ||
-      errorChunk.includes('DeprecationWarning');
+      errorChunk.includes('DeprecationWarning') ||
+      errorChunk.includes('HTTP Error 404') ||   // individual ticker fetch failure — scan continues
+      errorChunk.includes('Quote not found');
 
     if (!isWarning) {
       scanState.error = (scanState.error || '') + errorChunk;
@@ -1236,12 +1245,14 @@ async function runScheduledScan() {
         await new Promise(r => setTimeout(r, 2000));
 
         const today = new Date().toISOString().split('T')[0];
+        const dbUniverse = DB_UNIVERSE_MAP[universeChoice] || UNIVERSE_MAP[universeChoice];
         const signals = await dbAll(`
           SELECT symbol, grade, score, entry_low, entry_high, stop_loss, target_1, market_trend
           FROM daily_signals
-          WHERE decision = 'BUY' AND DATE(scan_date) = DATE(?)
+          WHERE decision = 'BUY' AND universe=?
+            AND scan_date=(SELECT MAX(scan_date) FROM daily_signals WHERE DATE(scan_date)=DATE(?) AND universe=?)
           ORDER BY score DESC LIMIT 50
-        `, [today]);
+        `, [dbUniverse, today, dbUniverse]);
 
         const gradeMap = {};
         signals.forEach(s => { gradeMap[s.grade || '?'] = (gradeMap[s.grade || '?'] || 0) + 1; });
