@@ -1,0 +1,62 @@
+name: Deploy to DigitalOcean
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create deployment tarball
+        run: |
+          tar -czf /tmp/momentum-scanner.tar.gz \
+            --exclude='node_modules' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='.git' \
+            --exclude='scan_cache' \
+            --exclude='scan_history.db' \
+            --exclude='.env' \
+            --exclude='dist' \
+            .
+          echo "Tarball size: $(du -sh /tmp/momentum-scanner.tar.gz | cut -f1)"
+
+      - name: Copy files to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USERNAME }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          source: "/tmp/momentum-scanner.tar.gz,remote_setup.sh"
+          target: "/root/"
+          strip_components: 2
+
+      - name: Deploy on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USERNAME }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          script: |
+            sed -i 's/\r$//' /root/remote_setup.sh
+            bash /root/remote_setup.sh
+
+      - name: Notify Telegram on success
+        if: success()
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d parse_mode="HTML" \
+            -d text="✅ <b>Momentum Scanner</b> deployed successfully%0A📅 $(date -u '+%Y-%m-%d %H:%M UTC')%0A🔗 http://${{ secrets.DO_HOST }}:82"
+
+      - name: Notify Telegram on failure
+        if: failure()
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d parse_mode="HTML" \
+            -d text="❌ <b>Momentum Scanner</b> deployment FAILED%0A📅 $(date -u '+%Y-%m-%d %H:%M UTC')%0ASee GitHub Actions for details."

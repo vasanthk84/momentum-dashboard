@@ -11,6 +11,8 @@ const csv = require('csv-parser');
 const createReadStream = require('fs').createReadStream;
 const cors = require('cors');
 const sqlite3 = require('sqlite3').verbose();
+const https = require('https');
+const cron = require('node-cron');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -49,6 +51,16 @@ function dbGet(query, params = []) {
       if (err) reject(err);
       else resolve(row || null);
     });
+  });
+}
+
+// Reconnect DB after Python scanner creates it on first run
+function openDbIfNeeded() {
+  if (db !== null) return;
+  if (!fsSync.existsSync(DB_PATH)) return;
+  db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READONLY, (err) => {
+    if (err) { console.error('⚠️  Could not reopen scan_history.db:', err.message); db = null; }
+    else console.log('🗄️  scan_history.db reconnected (read-only)');
   });
 }
 
@@ -1166,6 +1178,137 @@ function tryParseJson(val, fallback) {
   try { return JSON.parse(val); } catch { return fallback; }
 }
 
+// ── Telegram notification ─────────────────────────────────────────────────────
+async function sendTelegram(text) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
+  return new Promise((resolve) => {
+    const body = JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' });
+    const req = https.request({
+      hostname: 'api.telegram.org',
+      path: `/bot${token}/sendMessage`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+    }, (res) => {
+      res.on('data', () => {});
+      res.on('end', () => { console.log(`📱 Telegram sent (${res.statusCode})`); resolve(); });
+    });
+    req.on('error', err => { console.error('Telegram error:', err.message); resolve(); });
+    req.write(body);
+    req.end();
+  });
+}
+
+// ── Scheduled daily scan (called by cron) ────────────────────────────────────
+async function runScheduledScan() {
+  const universeChoice = process.env.SCHEDULED_UNIVERSE || '2';
+  if (!UNIVERSE_MAP[universeChoice]) {
+    console.error(`⏰ Scheduled scan: invalid SCHEDULED_UNIVERSE="${universeChoice}"`);
+    return;
+  }
+  const scanTypeChoice = '2'; // Always Tier-2 daily scan
+
+  const running = [...activeScans.values()].find(s => !s.completed);
+  if (running) {
+    console.log('⏰ Scheduled scan skipped — another scan is already active');
+    return;
+  }
+
+  const scanId = `scheduled_${Date.now()}`;
+  const cacheKey = getCacheKey(scanTypeChoice, universeChoice);
+  const scanState = {
+    id: scanId, progress: 'Scheduled scan starting...', logs: '',
+    completed: false, results: null, error: null, fromCache: false, startTime: new Date(),
+  };
+  activeScans.set(scanId, scanState);
+
+  const t0 = Date.now();
+  console.log(`\n⏰ [${scanId}] Scheduled daily scan — ${UNIVERSE_MAP[universeChoice]}`);
+
+  await new Promise((resolve) => {
+    const proc = spawn(PYTHON_CMD_ENV, [
+      path.join(__dirname, 'python-scanner-script.py'), scanTypeChoice, universeChoice,
+    ]);
+
+    const killTimer = setTimeout(() => {
+      proc.kill('SIGTERM');
+      scanState.error = 'Timed out after 15 min';
+      scanState.completed = true;
+      sendTelegram(`⚠️ <b>Momentum Scanner</b>\nScheduled scan timed out after 15 minutes.`)
+        .finally(resolve);
+    }, 15 * 60 * 1000);
+
+    proc.stdout.on('data', d => { scanState.logs += d.toString(); });
+    proc.stderr.on('data', d => { scanState.logs += `[ERR] ${d}`; });
+
+    proc.on('error', async err => {
+      clearTimeout(killTimer);
+      console.error(`[${scanId}] spawn error:`, err.message);
+      scanState.completed = true;
+      await sendTelegram(`❌ <b>Momentum Scanner</b>\nScheduled scan failed to start:\n${err.message}`);
+      resolve();
+    });
+
+    proc.on('close', async (code) => {
+      clearTimeout(killTimer);
+      const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+      console.log(`[${scanId}] Python exited code=${code} (${elapsed}s)`);
+
+      try {
+        await cacheResults(cacheKey, scanTypeChoice);
+        openDbIfNeeded();
+        // Allow DB writes to settle before querying
+        await new Promise(r => setTimeout(r, 2000));
+
+        const today = new Date().toISOString().split('T')[0];
+        const signals = await dbAll(`
+          SELECT symbol, grade, score, entry_low, entry_high, stop_loss, target_1, market_trend
+          FROM daily_signals
+          WHERE decision = 'BUY' AND DATE(scan_date) = DATE(?)
+          ORDER BY score DESC LIMIT 50
+        `, [today]);
+
+        const gradeMap = {};
+        signals.forEach(s => { gradeMap[s.grade || '?'] = (gradeMap[s.grade || '?'] || 0) + 1; });
+        const gradeStr = Object.entries(gradeMap).sort()
+          .map(([g, n]) => `${g}:${n}`).join('  ');
+
+        const top5 = signals.slice(0, 5).map((s, i) => {
+          const ent = (s.entry_low && s.entry_high)
+            ? `₹${Number(s.entry_low).toFixed(0)}–${Number(s.entry_high).toFixed(0)}` : '—';
+          const sl = s.stop_loss ? `  SL:₹${Number(s.stop_loss).toFixed(0)}` : '';
+          const t1 = s.target_1  ? `  T1:₹${Number(s.target_1).toFixed(0)}`  : '';
+          return `  ${i + 1}. ${s.symbol} (${s.grade}, ${s.score})  ${ent}${sl}${t1}`;
+        }).join('\n');
+
+        const trend = signals[0]?.market_trend || '—';
+        const msg = [
+          `📊 <b>Momentum Scanner — Daily Scan</b>`,
+          `📅 ${today}   🌐 ${UNIVERSE_MAP[universeChoice]}`,
+          ``,
+          `🎯 BUY Signals: <b>${signals.length}</b>   ${gradeStr}`,
+          `📈 Market: ${trend}`,
+          ``,
+          signals.length > 0 ? `🔥 Top picks:\n${top5}` : `ℹ️ No BUY signals today.`,
+          ``,
+          `⏱ Completed in ${elapsed}s`,
+        ].join('\n');
+
+        await sendTelegram(msg);
+      } catch (err) {
+        console.error(`[${scanId}] Post-scan error:`, err.message);
+        await sendTelegram(
+          `⚠️ <b>Momentum Scanner</b>\nScan ran but result read failed:\n${err.message}`
+        );
+      } finally {
+        scanState.completed = true;
+        resolve();
+      }
+    });
+  });
+}
+
 // SPA fallback — MUST be last; serves index.html for any non-API route
 app.get('*', (req, res) => {
   const indexPath = fsSync.existsSync(DIST_DIR)
@@ -1178,3 +1321,10 @@ app.listen(PORT, () => {
   console.log(`🚀 Momentum Scanner UI running at http://localhost:${PORT}`);
   console.log(`📁 Cache directory: ${CACHE_DIR}`);
 });
+
+// ── Cron: 4:30 PM IST = Mon–Fri ──────────────────────────────────────────────
+cron.schedule('30 16 * * 1-5', () => {
+  console.log('⏰ Cron fired: starting scheduled daily scan (4:30 PM IST)');
+  runScheduledScan().catch(err => console.error('Scheduled scan uncaught error:', err.message));
+}, { timezone: 'Asia/Kolkata' });
+console.log('⏰ Scheduled scan registered: 4:30 PM IST, Mon–Fri');
