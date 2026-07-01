@@ -391,7 +391,7 @@ app.post('/api/start-scan', async (req, res) => {
 
   // Use 'python' (most common on Windows with standard installer).
   // If your system uses 'py' launcher or 'python3', change this env var or update below.
-  const PYTHON_CMD = process.env.PYTHON_CMD || 'python';
+  const PYTHON_CMD = process.env.PYTHON_CMD || 'py';
   const pythonProcess = spawn(PYTHON_CMD, [
     'python-scanner-script.py',
     mainChoice,
