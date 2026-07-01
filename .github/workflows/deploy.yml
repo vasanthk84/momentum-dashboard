@@ -14,6 +14,7 @@ jobs:
       - name: Create deployment tarball
         run: |
           tar -czf momentum-scanner.tar.gz \
+            --exclude='momentum-scanner.tar.gz' \
             --exclude='node_modules' \
             --exclude='__pycache__' \
             --exclude='*.pyc' \
