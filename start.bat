@@ -22,6 +22,11 @@ if not exist "node_modules\" (
     echo.
 )
 
+echo  Clearing ports 3000 and 5173...
+powershell -NoProfile -Command "$p=(Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue).OwningProcess; if($p){Stop-Process -Id $p -Force -ErrorAction SilentlyContinue; Write-Host '  Killed PID' $p 'on port 3000'}"
+powershell -NoProfile -Command "$p=(Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue).OwningProcess; if($p){Stop-Process -Id $p -Force -ErrorAction SilentlyContinue; Write-Host '  Killed PID' $p 'on port 5173'}"
+echo.
+
 echo  Choose launch mode:
 echo.
 echo    [1]  Production  (npm run build + serve at :3000)

@@ -57,7 +57,7 @@ def load_symbols_from_choice(choice):
         print(f"Wrapper: Loaded {len(unique_symbols)} unique stocks from {len(files)} files")
         return unique_symbols
 
-    # HANDLE OPTIONS 1-5
+    # HANDLE OPTIONS 1-5 and 7 (Quality Universe)
     if choice in Config.STOCK_UNIVERSES:
         val = Config.STOCK_UNIVERSES[choice]
         if isinstance(val, tuple):
@@ -66,7 +66,9 @@ def load_symbols_from_choice(choice):
             if os.path.exists(path):
                 print(f"Wrapper: Loading from {description} ({filename})")
                 df = pd.read_csv(path)
-                return df['Symbol'].apply(lambda x: str(x).strip() if str(x).endswith('.NS') else f"{str(x).strip()}.NS").tolist()
+                # universe_master.csv uses lowercase 'symbol'; all others use 'Symbol'
+                sym_col = 'symbol' if 'symbol' in df.columns else 'Symbol'
+                return df[sym_col].apply(lambda x: str(x).strip() if str(x).strip().endswith('.NS') else f"{str(x).strip()}.NS").tolist()
             else:
                 print(f"Error: File not found: {path}", file=sys.stderr)
                 return []
