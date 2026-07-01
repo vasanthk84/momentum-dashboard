@@ -37,15 +37,16 @@ class FlexibleWatchlistEntryValidator:
         self.watchlist_type = None  # 'tier1', 'simple', or 'custom'
 
     def check_market_trend(self):
-        """Check Nifty 50 trend - critical for entry decisions"""
+        """Check Nifty 50 trend using 21-EMA — more stable than 5-day SMA."""
         try:
             print(f"\n{Fore.CYAN}{'=' * 100}")
-            print(f"{Fore.CYAN}📊 CHECKING OVERALL MARKET TREND (NIFTY 50)")
+            print(f"{Fore.CYAN}📊 CHECKING OVERALL MARKET TREND (NIFTY 50 — 21-EMA)")
             print(f"{Fore.CYAN}{'=' * 100}\n")
 
-            nifty = yf.download('^NSEI', period='5d', progress=False)
+            # 3 months gives enough history for a meaningful 21-EMA
+            nifty = yf.download('^NSEI', period='3mo', progress=False)
 
-            if nifty.empty:
+            if nifty.empty or len(nifty) < 22:
                 print(f"{Fore.YELLOW}⚠️  Could not fetch Nifty data, assuming neutral market\n")
                 self.nifty_trend = 'NEUTRAL'
                 self.market_strength = 50
@@ -54,27 +55,40 @@ class FlexibleWatchlistEntryValidator:
             if isinstance(nifty.columns, pd.MultiIndex):
                 nifty.columns = nifty.columns.get_level_values(0)
 
-            current_price = nifty['Close'].iloc[-1]
-            sma_5 = nifty['Close'].tail(5).mean()
-            price_change_1d = (nifty['Close'].iloc[-1] / nifty['Close'].iloc[-2] - 1) * 100
-            price_change_5d = (nifty['Close'].iloc[-1] / nifty['Close'].iloc[0] - 1) * 100
+            close = nifty['Close']
+            current_price = close.iloc[-1]
 
-            if current_price > sma_5 and price_change_1d > 0.5:
+            # 21-EMA: smoothed trend that ignores 1-2 day noise
+            ema21 = close.ewm(span=21, adjust=False).mean()
+            current_ema21  = ema21.iloc[-1]
+            # 5-day EMA slope tells us if trend is accelerating or rolling over
+            ema21_slope_pct = (ema21.iloc[-1] - ema21.iloc[-5]) / ema21.iloc[-5] * 100
+
+            price_change_1d  = (close.iloc[-1] / close.iloc[-2] - 1) * 100
+            above_ema21 = current_price > current_ema21
+            pct_from_ema21 = (current_price - current_ema21) / current_ema21 * 100
+
+            if above_ema21 and ema21_slope_pct > 0.1 and price_change_1d > 0.3:
                 self.nifty_trend = 'STRONG_BULLISH'
                 self.market_strength = 90
                 color = Fore.GREEN
                 emoji = "🚀"
-            elif current_price > sma_5 and price_change_1d > 0:
+            elif above_ema21 and ema21_slope_pct >= 0:
                 self.nifty_trend = 'BULLISH'
                 self.market_strength = 70
                 color = Fore.GREEN
                 emoji = "📈"
-            elif abs(price_change_1d) < 0.5:
+            elif abs(pct_from_ema21) < 0.5:           # hugging EMA21 — directionless
                 self.nifty_trend = 'NEUTRAL'
                 self.market_strength = 50
                 color = Fore.YELLOW
                 emoji = "➡️"
-            elif current_price < sma_5 and price_change_1d < 0:
+            elif above_ema21 and ema21_slope_pct < 0:  # price above but slope rolling over
+                self.nifty_trend = 'NEUTRAL'
+                self.market_strength = 55
+                color = Fore.YELLOW
+                emoji = "⚠️"
+            elif not above_ema21 and ema21_slope_pct < 0:
                 self.nifty_trend = 'BEARISH'
                 self.market_strength = 30
                 color = Fore.RED
@@ -83,12 +97,58 @@ class FlexibleWatchlistEntryValidator:
                 self.nifty_trend = 'STRONG_BEARISH'
                 self.market_strength = 10
                 color = Fore.RED
-                emoji = "⚠️"
+                emoji = "🔴"
+
+            print(f"{color}{emoji}  Nifty: {current_price:.0f}  |  21-EMA: {current_ema21:.0f}  "
+                  f"|  EMA slope: {ema21_slope_pct:+.2f}%/5d  |  1d: {price_change_1d:+.2f}%")
+            print(f"{color}   Trend: {self.nifty_trend}  |  Market strength: {self.market_strength}/100\n")
 
         except Exception as e:
             print(f"{Fore.YELLOW}⚠️  Error checking market trend: {e}")
             self.nifty_trend = 'NEUTRAL'
             self.market_strength = 50
+
+    def check_upcoming_earnings(self, symbol):
+        """
+        Returns (trading_days_to_earnings, earnings_date_str) or (None, None).
+        Uses yfinance calendar; gracefully returns None if data unavailable
+        (common for many NSE stocks).
+        """
+        try:
+            sym = symbol if symbol.endswith('.NS') else f"{symbol}.NS"
+            ticker = yf.Ticker(sym)
+            cal = ticker.calendar
+
+            if cal is None:
+                return None, None
+
+            earnings_date = None
+
+            # yfinance returns different shapes across versions
+            if isinstance(cal, dict):
+                dates = cal.get('Earnings Date', [])
+                if dates:
+                    earnings_date = pd.Timestamp(dates[0])
+            elif isinstance(cal, pd.DataFrame) and not cal.empty:
+                if 'Earnings Date' in cal.index:
+                    val = cal.loc['Earnings Date'].iloc[0]
+                    earnings_date = pd.Timestamp(val)
+
+            if earnings_date is None or pd.isna(earnings_date):
+                return None, None
+
+            today = pd.Timestamp.now().normalize()
+            if earnings_date <= today:
+                return None, None          # already passed
+
+            calendar_days = (earnings_date - today).days
+            # Approximate calendar days → trading days (5 out of 7)
+            trading_days = max(0, int(calendar_days * 5 / 7))
+
+            return trading_days, earnings_date.strftime('%Y-%m-%d')
+
+        except Exception:
+            return None, None
 
     def detect_watchlist_type(self, df):
         """Detect what type of watchlist CSV this is"""
@@ -645,6 +705,9 @@ class FlexibleWatchlistEntryValidator:
                 'Market_Trend': self.nifty_trend,
                 'Market_Strength': self.market_strength,
 
+                # === EARNINGS RISK ===
+                'Earnings_Alert': stock.get('Earnings_Alert', ''),
+
                 # === KEY REASONS (Top 3) ===
                 'Buy_Reason_1': stock['Reasons'][0] if len(stock['Reasons']) > 0 else '',
                 'Buy_Reason_2': stock['Reasons'][1] if len(stock['Reasons']) > 1 else '',
@@ -702,12 +765,31 @@ class FlexibleWatchlistEntryValidator:
 
             print(f"✅ ₹{current_price:.2f} ({price_date})")
 
+            # Earnings proximity check
+            days_to_earnings, earnings_date_str = self.check_upcoming_earnings(symbol)
+            earnings_risk = days_to_earnings is not None and days_to_earnings <= 10
+
             # Enrich data (calculate missing values if needed)
             enriched_data = self.enrich_watchlist_data(stock_row, market_data)
 
             # Validate entry timing
             decision, score, reasons, wait_factors, skip_factors, metrics = \
                 self.validate_entry_timing(enriched_data, current_price, market_data)
+
+            # Earnings override — binary event risk trumps technical score
+            if days_to_earnings is not None:
+                if days_to_earnings <= 5:
+                    if decision == 'BUY':
+                        decision = 'WAIT'
+                    wait_factors.append(
+                        f"⚠️  Earnings in {days_to_earnings} trading days ({earnings_date_str}) — binary risk, wait for result"
+                    )
+                    print(f"      {Fore.YELLOW}⚠️  EARNINGS ALERT: {days_to_earnings}d away ({earnings_date_str}) → forced to WAIT")
+                elif days_to_earnings <= 10:
+                    wait_factors.append(
+                        f"📅 Earnings in {days_to_earnings} trading days ({earnings_date_str}) — size down / tight stop"
+                    )
+                    print(f"      {Fore.YELLOW}📅 Earnings caution: {days_to_earnings}d away ({earnings_date_str})")
 
             # Calculate entry parameters
             entry_params = self.calculate_entry_params(
@@ -745,6 +827,7 @@ class FlexibleWatchlistEntryValidator:
                 'Risk_%': entry_params['risk_pct'],
                 'Target_1': entry_params['target_1'],
                 'Target_2': entry_params['target_2'],
+                'Earnings_Alert': f"{days_to_earnings}d ({earnings_date_str})" if earnings_risk else '',
                 'Reasons': reasons,
                 'Wait_Factors': wait_factors,
                 'Skip_Factors': skip_factors
@@ -801,6 +884,8 @@ class FlexibleWatchlistEntryValidator:
                 for reason in stock['Reasons'][:5]:
                     print(f"{Fore.WHITE}      ✓ {reason}")
 
+                if stock.get('Earnings_Alert'):
+                    print(f"{Fore.RED}   🗓  EARNINGS ALERT: {stock['Earnings_Alert']} — size down, tight stop")
                 print(f"\n{Fore.YELLOW}   ⚠️  Position Size: Max 3-5% of portfolio")
                 print(f"{Fore.YELLOW}   ⚠️  Set stop loss IMMEDIATELY\n")
         else:
@@ -878,6 +963,7 @@ class FlexibleWatchlistEntryValidator:
                 'Entry_Low': round(r['Entry_Low'], 2),
                 'Entry_High': round(r['Entry_High'], 2),
                 'Above_MA20': r['Above_MA20'],
+                'Earnings_Alert': r.get('Earnings_Alert', ''),
                 'Wait_For': ' | '.join(r['Wait_Factors'][:3])
             } for r in wait_stocks])
             wait_df.to_csv(wait_filename, index=False)
@@ -906,7 +992,8 @@ class FlexibleWatchlistEntryValidator:
                 'Wyckoff_Phase': r['Wyckoff_Phase'],
                 'Above_MA20': r['Above_MA20'],
                 'Above_MA50': r['Above_MA50'],
-                'Volume_Ratio': round(r['Volume_Ratio'], 2)
+                'Volume_Ratio': round(r['Volume_Ratio'], 2),
+                'Earnings_Alert': r.get('Earnings_Alert', '')
             } for r in all_results])
         else:
             results_df = pd.DataFrame()
