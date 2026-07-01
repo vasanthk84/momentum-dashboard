@@ -28,6 +28,13 @@ import requests
 import json
 from db_persistence import get_db, save_watchlist_with_db, save_daily_signals_with_db
 
+# Load .env file so credentials stay out of source code
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv not installed; rely on environment variables being set externally
+
 init(autoreset=True)
 warnings.filterwarnings('ignore')
 
@@ -91,7 +98,8 @@ class Config:
         '3': ('Highest_Market_Cap_Companies.csv', 'Large Cap'),
         '4': ('Mid_Cap_Stocks.csv', 'Mid Cap'),
         '5': ('Small_Cap_Stocks.csv', 'Small Cap'),
-        '6': 'ALL'
+        '6': 'ALL',
+        '7': ('universe_master.csv', 'Quality Universe'),   # 558-stock quality list from VCP scanner (mcap > ₹10k Cr, with sector data)
     }
     DEFAULT_UNIVERSE = 'Nifty_Next_50.csv'
     STOCK_UNIVERSE = 'Nifty_Next_50.csv'
@@ -104,8 +112,8 @@ class Config:
     BREAKOUT_READY_ONLY = False
     # ========== TELEGRAM SETTINGS ==========
     SEND_TELEGRAM = True
-    TELEGRAM_BOT_TOKEN = "7668822476:AAEeSzWdt7DgzOs3Fsbz5_oZpPL8xoUpLH8"
-    TELEGRAM_CHAT_ID = "7745188241"
+    TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
+    TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '')
     # ========== NOTIFICATION SETTINGS ==========
     SEND_BUY_ONLY = True
     ATTACH_CSV = True

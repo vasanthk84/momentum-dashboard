@@ -1,10 +1,27 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-// .gitignore
+# ── Node ──────────────────────────────────────────────────────────────────────
 node_modules/
-.env
-*.log
 dist/
-.DS_Store
+
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
+*.pyo
+venv/
+.venv/
+
+# ── Scanner runtime outputs ───────────────────────────────────────────────────
+*.db
+scan_cache/
+BUY_SIGNALS_*.csv
+WAIT_LIST_*.csv
+watchlist_momentum_current.csv
+temp_*.py
+
+# ── Secrets & local config ────────────────────────────────────────────────────
+.env
+resources/universe_master.csv
+
+# ── Logs & misc ───────────────────────────────────────────────────────────────
+*.log
+.DS_Store
+.claude/

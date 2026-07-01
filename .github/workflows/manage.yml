@@ -1,0 +1,61 @@
+name: Manage Server
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Action to perform"
+        required: true
+        type: choice
+        options:
+          - status
+          - start
+          - stop
+          - restart
+          - logs
+
+jobs:
+  manage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run action on server
+        id: ssh
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USERNAME }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          script: |
+            case "${{ inputs.action }}" in
+              status)
+                systemctl status momentum-scanner --no-pager -l
+                ;;
+              start)
+                systemctl start momentum-scanner
+                sleep 2
+                systemctl status momentum-scanner --no-pager
+                ;;
+              stop)
+                systemctl stop momentum-scanner
+                echo "momentum-scanner stopped."
+                ;;
+              restart)
+                systemctl restart momentum-scanner
+                sleep 2
+                systemctl status momentum-scanner --no-pager
+                ;;
+              logs)
+                journalctl -u momentum-scanner -n 100 --no-pager
+                ;;
+            esac
+
+      - name: Notify Telegram
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          EMOJI="✅"
+          [ "$STATUS" = "failure" ] && EMOJI="❌"
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d parse_mode="HTML" \
+            -d text="${EMOJI} <b>Momentum Scanner</b> — <code>${{ inputs.action }}</code>%0A📅 $(date -u '+%Y-%m-%d %H:%M UTC')%0AStatus: ${STATUS}"
