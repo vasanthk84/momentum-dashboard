@@ -3,5 +3,6 @@ dist/
 *.db
 scan_cache/
 .claude/
-analytics.html
-dashboard.html
+__pycache__/
+*.log
+temp_price_fetch.py

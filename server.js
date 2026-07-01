@@ -541,10 +541,6 @@ app.get('/api/scan-results/:scanId', (req, res) => {
   activeScans.delete(scanId);
 });
 
-// Serve performance tracker page
-app.get('/performance.html', (req, res) => {
-  res.sendFile(path.join(__dirname, 'performance.html'));
-});
 
 /**
  * Get available dates for performance tracking (filtered by universe)
