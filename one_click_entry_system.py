@@ -46,6 +46,9 @@ class FlexibleWatchlistEntryValidator:
             # 3 months gives enough history for a meaningful 21-EMA
             nifty = yf.download('^NSEI', period='3mo', progress=False)
 
+            if not nifty.empty:
+                nifty = nifty.dropna(subset=['Close'] if 'Close' in nifty.columns else [nifty.columns[3]])
+
             if nifty.empty or len(nifty) < 22:
                 print(f"{Fore.YELLOW}⚠️  Could not fetch Nifty data, assuming neutral market\n")
                 self.nifty_trend = 'NEUTRAL'
@@ -288,6 +291,12 @@ class FlexibleWatchlistEntryValidator:
             tr3 = abs(low - close.shift())
             tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
             data['ATR'] = tr.rolling(window=14).mean()
+
+            # Drop NaN-close rows: Yahoo Finance appends a NaN bar for NSE stocks
+            # when fetched after market close (3:30 PM IST), causing ₹nan prices
+            data = data.dropna(subset=['Close'])
+            if len(data) < 2:
+                return None, None, None
 
             current_price = data['Close'].iloc[-1]
             prev_close = data['Close'].iloc[-2]
