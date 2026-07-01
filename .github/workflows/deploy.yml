@@ -13,7 +13,7 @@ jobs:
 
       - name: Create deployment tarball
         run: |
-          tar -czf /tmp/momentum-scanner.tar.gz \
+          tar -czf momentum-scanner.tar.gz \
             --exclude='node_modules' \
             --exclude='__pycache__' \
             --exclude='*.pyc' \
@@ -23,7 +23,7 @@ jobs:
             --exclude='.env' \
             --exclude='dist' \
             .
-          echo "Tarball size: $(du -sh /tmp/momentum-scanner.tar.gz | cut -f1)"
+          echo "Tarball size: $(du -sh momentum-scanner.tar.gz | cut -f1)"
 
       - name: Copy files to server
         uses: appleboy/scp-action@v0.1.7
@@ -31,19 +31,18 @@ jobs:
           host: ${{ secrets.DO_HOST }}
           username: ${{ secrets.DO_USERNAME }}
           key: ${{ secrets.DO_SSH_KEY }}
-          source: "/tmp/momentum-scanner.tar.gz,remote_setup.sh"
+          source: "momentum-scanner.tar.gz,momentum_setup.sh"
           target: "/root/"
-          strip_components: 2
 
-      - name: Deploy on server
+      - name: Run setup on server
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DO_HOST }}
           username: ${{ secrets.DO_USERNAME }}
           key: ${{ secrets.DO_SSH_KEY }}
           script: |
-            sed -i 's/\r$//' /root/remote_setup.sh
-            bash /root/remote_setup.sh
+            sed -i 's/\r$//' /root/momentum_setup.sh
+            bash /root/momentum_setup.sh
 
       - name: Notify Telegram on success
         if: success()
