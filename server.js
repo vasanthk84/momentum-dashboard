@@ -389,11 +389,21 @@ app.post('/api/start-scan', async (req, res) => {
   scanState.progress = 'Starting Python scan...';
   scanState.fromCache = false;
 
-  const pythonProcess = spawn('py', [
+  // Use 'python' (most common on Windows with standard installer).
+  // If your system uses 'py' launcher or 'python3', change this env var or update below.
+  const PYTHON_CMD = process.env.PYTHON_CMD || 'python';
+  const pythonProcess = spawn(PYTHON_CMD, [
     'python-scanner-script.py',
     mainChoice,
     universeChoice
   ]);
+
+  pythonProcess.on('error', (err) => {
+    const msg = `Cannot start Python ("${PYTHON_CMD}"): ${err.message}. Set the PYTHON_CMD env var to the correct executable.`;
+    console.error(`[${scanId}] ${msg}`);
+    scanState.error = msg;
+    scanState.completed = true;
+  });
 
   pythonProcess.stdout.on('data', (data) => {
     const logChunk = data.toString();
@@ -780,14 +790,6 @@ app.get('/api/performance/analyze', async (req, res) => {
   }
 });
 
-// SPA fallback — serve index.html for any non-API route
-app.get('*', (req, res) => {
-  const indexPath = fsSync.existsSync(DIST_DIR)
-    ? path.join(DIST_DIR, 'index.html')
-    : path.join(__dirname, 'index.html');
-  res.sendFile(indexPath);
-});
-
 /**
  * BATCH ANALYTICS ENDPOINT
  * Analyzes multiple past scans to generate aggregate statistics
@@ -901,6 +903,14 @@ app.get('/api/analytics/batch', async (req, res) => {
     console.error('❌ Batch analytics error:', error);
     res.status(500).json({ error: error.message });
   }
+});
+
+// SPA fallback — MUST be last; serves index.html for any non-API route
+app.get('*', (req, res) => {
+  const indexPath = fsSync.existsSync(DIST_DIR)
+    ? path.join(DIST_DIR, 'index.html')
+    : path.join(__dirname, 'index.html');
+  res.sendFile(indexPath);
 });
 
 app.listen(PORT, () => {

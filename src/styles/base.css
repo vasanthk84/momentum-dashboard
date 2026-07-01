@@ -1,6 +1,6 @@
 /* ── RESET & BASE ────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 14px; }
+html { font-size: 15px; }
 body {
   font-family: var(--font-body);
   background: var(--surface-2);
@@ -49,10 +49,10 @@ a { color: var(--accent); text-decoration: none; }
   margin-bottom: var(--gap); flex-wrap: wrap; gap: 10px;
 }
 .eyebrow {
-  font-size: 10px; font-weight: 600; letter-spacing: .08em;
+  font-size: 11px; font-weight: 600; letter-spacing: .08em;
   text-transform: uppercase; color: var(--muted); margin-bottom: 4px;
 }
-.section-h { font-size: 18px; font-weight: 800; letter-spacing: -.02em; color: var(--ink); }
+.section-h { font-size: 20px; font-weight: 800; letter-spacing: -.02em; color: var(--ink); }
 .section-h .muted { color: var(--muted); font-weight: 500; }
 
 /* ── ANIMATIONS ──────────────────────────────────────────────────────────── */
