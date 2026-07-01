@@ -1,0 +1,60 @@
+/* ── RESET & BASE ────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 14px; }
+body {
+  font-family: var(--font-body);
+  background: var(--surface-2);
+  color: var(--ink);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+button { cursor: pointer; font-family: inherit; border: none; background: none; }
+input, select { font-family: inherit; font-size: inherit; }
+svg { display: block; }
+a { color: var(--accent); text-decoration: none; }
+
+/* ── SCROLLBARS ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted-2); }
+
+/* ── UTILITIES ───────────────────────────────────────────────────────────── */
+.pos   { color: var(--pos)   !important; }
+.neg   { color: var(--neg)   !important; }
+.muted { color: var(--muted) !important; }
+.mono  { font-family: var(--font-mono); }
+.serif { font-family: var(--font-serif); font-style: italic; }
+.hi    { color: var(--accent); }
+
+/* ── PAGE ────────────────────────────────────────────────────────────────── */
+.page {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: var(--gap-lg) 18px calc(var(--gap-lg) * 2);
+}
+
+.panel { display: none; }
+.panel.active { display: block; animation: fadeIn .2s ease; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:translateY(0)} }
+
+/* ── LAYOUT ──────────────────────────────────────────────────────────────── */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); margin-bottom: var(--gap); }
+@media(max-width:800px){ .two-col { grid-template-columns: 1fr; } }
+
+/* ── SECTION HEADER ──────────────────────────────────────────────────────── */
+.section-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: var(--gap); flex-wrap: wrap; gap: 10px;
+}
+.eyebrow {
+  font-size: 10px; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--muted); margin-bottom: 4px;
+}
+.section-h { font-size: 18px; font-weight: 800; letter-spacing: -.02em; color: var(--ink); }
+.section-h .muted { color: var(--muted); font-weight: 500; }
+
+/* ── ANIMATIONS ──────────────────────────────────────────────────────────── */
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+@keyframes spin   { to { transform: rotate(360deg); } }

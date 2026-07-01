@@ -1,10 +1,7 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-// .gitignore
-node_modules/
-.env
-*.log
+﻿node_modules/
 dist/
-.DS_Store
-__pycache__/
-*.pyc
+*.db
+scan_cache/
+.claude/
+analytics.html
+dashboard.html

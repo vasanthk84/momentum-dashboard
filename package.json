@@ -1,18 +1,32 @@
 {
-  "name": "stock-scanner-dashboard",
-  "version": "1.0.0",
-  "description": "A Node.js UI for the two-tier momentum scanner",
-  "main": "server.js",
+  "name": "momentum-scanner",
+  "version": "2.0.0",
+  "description": "Two-Tier Momentum Scanner — React+TS UI over Express backend",
+  "private": true,
   "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "client": "vite",
+    "server": "node server.js",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
     "start": "node server.js"
   },
   "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.5"
+  },
+  "serverDependencies": {
     "child_process": "^1.0.2",
     "cors": "^2.8.5",
     "csv-parser": "^3.0.0",
-    "express": "^4.19.2",
-    "fs": "^0.0.1-security",
-    "glob": "^10.4.1",
-    "path": "^0.12.7"
+    "express": "^4.19.2"
   }
 }

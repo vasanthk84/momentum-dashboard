@@ -13,7 +13,18 @@ const PORT = 3000;
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname)));
+
+// In production (after `npm run build`), serve the Vite dist output.
+// In dev, Vite's own server handles static files and proxies /api to here.
+const DIST_DIR = path.join(__dirname, 'dist');
+if (fsSync.existsSync(DIST_DIR)) {
+  app.use(express.static(DIST_DIR));
+  console.log('📦 Serving built React app from dist/');
+} else {
+  // Fallback: serve project root (supports legacy plain index.html)
+  app.use(express.static(path.join(__dirname)));
+  console.log('⚡ No dist/ found — serving project root (run `npm run build` to build)');
+}
 
 const activeScans = new Map();
 
@@ -378,7 +389,7 @@ app.post('/api/start-scan', async (req, res) => {
   scanState.progress = 'Starting Python scan...';
   scanState.fromCache = false;
 
-  const pythonProcess = spawn('python', [
+  const pythonProcess = spawn('py', [
     'python-scanner-script.py',
     mainChoice,
     universeChoice
@@ -769,8 +780,127 @@ app.get('/api/performance/analyze', async (req, res) => {
   }
 });
 
+// SPA fallback — serve index.html for any non-API route
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+  const indexPath = fsSync.existsSync(DIST_DIR)
+    ? path.join(DIST_DIR, 'index.html')
+    : path.join(__dirname, 'index.html');
+  res.sendFile(indexPath);
+});
+
+/**
+ * BATCH ANALYTICS ENDPOINT
+ * Analyzes multiple past scans to generate aggregate statistics
+ */
+app.get('/api/analytics/batch', async (req, res) => {
+  const { universe, limit = 5 } = req.query; // Default to last 5 scans
+
+  if (!universe) {
+    return res.status(400).json({ error: 'Universe is required' });
+  }
+
+  console.log(`\n📊 Batch Analytics Request: ${universe} (Last ${limit} scans)`);
+
+  try {
+    // 1. Get all available dates
+    const files = await fs.readdir(CACHE_DIR);
+    const dates = new Set();
+    
+    files.forEach(file => {
+      // Match DAILY or COMBINED files for this universe
+      const dailyMatch = file.match(new RegExp(`^(\\d{4}-\\d{2}-\\d{2})_DAILY_${universe}_`));
+      const combinedMatch = file.match(new RegExp(`^(\\d{4}-\\d{2}-\\d{2})_COMBINED_${universe}_`));
+      
+      if (dailyMatch) dates.add(dailyMatch[1]);
+      if (combinedMatch) dates.add(combinedMatch[1]);
+    });
+
+    // Sort dates descending and take the requested limit
+    const recentDates = Array.from(dates).sort().reverse().slice(0, parseInt(limit));
+    
+    if (recentDates.length === 0) {
+      return res.status(404).json({ error: 'No scan history found for this universe' });
+    }
+
+    console.log(`   Analyzing dates: ${recentDates.join(', ')}`);
+
+    // 2. Load signals from these dates
+    let allSignals = [];
+    const symbolsToFetch = new Set();
+
+    for (const date of recentDates) {
+      // Try DAILY then COMBINED
+      let filePath = path.join(CACHE_DIR, `${date}_DAILY_${universe}_BUY.csv`);
+      if (!fsSync.existsSync(filePath)) {
+        filePath = path.join(CACHE_DIR, `${date}_COMBINED_${universe}_BUY.csv`);
+      }
+
+      if (fsSync.existsSync(filePath)) {
+        const signals = await parseCSV(filePath);
+        signals.forEach(s => {
+            // Attach scan date to signal for aging calc
+            s._scanDate = date; 
+            allSignals.push(s);
+            symbolsToFetch.add(s.Symbol);
+        });
+      }
+    }
+
+    console.log(`   Loaded ${allSignals.length} total signals across ${recentDates.length} days`);
+    console.log(`   Fetching live prices for ${symbolsToFetch.size} unique symbols...`);
+
+    // 3. Batch fetch current prices
+    // Note: If list is huge (>500), you might want to chunk this. 
+    // For now, assuming reasonable size < 200.
+    const currentPrices = await fetchCurrentPrices(Array.from(symbolsToFetch));
+
+    // 4. Calculate Performance Metrics
+    const analyzedSignals = allSignals.map(signal => {
+      const symbol = signal.Symbol;
+      const entryPrice = parseFloat(signal.Current_Price || signal.Signal_Price || 0);
+      const currentPrice = currentPrices[symbol];
+      const scanDate = new Date(signal._scanDate);
+      const today = new Date();
+      const daysHeld = Math.floor((today - scanDate) / (1000 * 60 * 60 * 24));
+
+      let returnPct = 0;
+      let status = 'OPEN';
+
+      if (currentPrice && entryPrice) {
+        returnPct = ((currentPrice - entryPrice) / entryPrice) * 100;
+        
+        const stopLoss = parseFloat(signal.Stop_Loss || 0);
+        const target1 = parseFloat(signal.Target_1 || 0);
+
+        if (target1 && currentPrice >= target1) status = 'TARGET_HIT';
+        else if (stopLoss && currentPrice <= stopLoss) status = 'STOP_HIT';
+        else status = returnPct > 0 ? 'PROFIT' : 'LOSS';
+      }
+
+      return {
+        symbol,
+        date: signal._scanDate,
+        grade: signal.Grade || 'N/A',
+        score: parseInt(signal.Score) || 0,
+        returnPct,
+        daysHeld,
+        status,
+        volumeRatio: parseFloat(signal.Volume_Ratio || 0),
+        vwapDeviation: parseFloat(signal['VWAP_Deviation_%'] || 0), // Handle special char key
+        marketTrend: signal.Market_Trend || 'Neutral'
+      };
+    });
+
+    res.json({
+      dates: recentDates,
+      totalSignals: analyzedSignals.length,
+      signals: analyzedSignals
+    });
+
+  } catch (error) {
+    console.error('❌ Batch analytics error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.listen(PORT, () => {
