@@ -3,7 +3,7 @@ set -e
 
 APP_DIR="/opt/momentum-scanner"
 SERVICE="momentum-scanner"
-NGINX_PORT=82
+NGINX_PORT=83
 NODE_PORT=3000
 
 echo "======================================================"
