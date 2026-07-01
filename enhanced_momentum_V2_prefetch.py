@@ -4,9 +4,22 @@ import yfinance as yf
 from datetime import datetime, timedelta
 import warnings
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed  # Added this import
+import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 warnings.filterwarnings('ignore')
+
+# Yahoo Finance blocks plain bot requests from cloud IPs — use a browser User-Agent
+_YF_SESSION = requests.Session()
+_YF_SESSION.headers.update({
+    'User-Agent': (
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/120.0.0.0 Safari/537.36'
+    ),
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+})
 
 
 class DataCache:
@@ -23,7 +36,7 @@ class DataCache:
     def _fetch_single(self, symbol):
         """Fetch data for one symbol (for parallel use)."""
         try:
-            stock = yf.Ticker(symbol)
+            stock = yf.Ticker(symbol, session=_YF_SESSION)
             # Use 'Asia/Kolkata' for .NS symbols for consistent timezone handling
             start_fetch_ts = pd.Timestamp(self.start_fetch, tz='Asia/Kolkata')
             end_fetch_ts = pd.Timestamp(self.end_fetch, tz='Asia/Kolkata')
@@ -37,8 +50,8 @@ class DataCache:
     def _fetch_all(self):
         """Parallel fetch all data."""
         print("📡 Pre-fetching historical data for all stocks...")
-        # Increased workers for faster fetching
-        with ThreadPoolExecutor(max_workers=30) as executor:
+        # Keep workers low to avoid Yahoo Finance rate-limiting from cloud IPs
+        with ThreadPoolExecutor(max_workers=5) as executor:
             futures = [executor.submit(self._fetch_single, symbol) for symbol in self.symbols]
             for future in as_completed(futures):
                 symbol, df = future.result()
@@ -101,7 +114,7 @@ class SmartMoneyScanner:
             return self.data_cache.get_slice(symbol, end_date or datetime.now().date())
 
         try:
-            stock = yf.Ticker(symbol)
+            stock = yf.Ticker(symbol, session=_YF_SESSION)
             if end_date:
                 start_date = end_date - timedelta(days=180)
                 df = stock.history(start=start_date, end=end_date)
@@ -320,7 +333,7 @@ class SmartMoneyScanner:
             nifty_df = self.fetch_nifty_data(df.index[-60].date(), df.index[-1].date())
             if nifty_df is None or len(nifty_df) < 30:
                 # Fallback to original fetch if cache miss
-                nifty = yf.Ticker('^NSEI')
+                nifty = yf.Ticker('^NSEI', session=_YF_SESSION)
                 nifty_df = nifty.history(start=df.index[-60], end=df.index[-1])
                 if len(nifty_df) < 30:
                     return 50
@@ -739,7 +752,7 @@ class Backtester:
         try:
             start = scan_date + timedelta(days=1)
             end = scan_date + timedelta(days=days_ahead + 30)
-            stock = yf.Ticker(symbol)
+            stock = yf.Ticker(symbol, session=_YF_SESSION)
             df = stock.history(start=start, end=end)
             return df if len(df) > 0 else None
         except:
